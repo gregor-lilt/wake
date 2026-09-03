@@ -62,6 +62,8 @@ export interface Theme {
     codeBg: string; codeFg: string;
     /** the jump bar's ground: opaque, so it needs no backdrop filter */
     jump: string;
+    /** the agent's own words in the console: a slightly warmer tone than the text */
+    narration: string;
   };
 }
 
@@ -95,7 +97,8 @@ export function makeTheme(name: ThemeName): Theme {
         border: 'rgba(255,255,255,0.12)', accent: '#ffb050',
         // the sheet, matched to the Shiki theme the worker uses
         codeBg: 'rgb(20,24,30)', codeFg: '#c9d1d9',
-        jump: '#171b21'
+        jump: '#171b21',
+        narration: '#e8d9c4'
       }
     };
   }
@@ -119,7 +122,8 @@ export function makeTheme(name: ThemeName): Theme {
       bg: '#f6f4f0', fg: '#22262c', panel: 'rgba(255,255,255,0.9)',
       border: 'rgba(0,0,0,0.14)', accent: '#c65a10',
       codeBg: 'rgb(252,252,250)', codeFg: '#24292f',
-      jump: '#fbfaf7'
+      jump: '#fbfaf7',
+      narration: '#5a4630'
     }
   };
 }

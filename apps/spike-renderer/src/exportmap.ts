@@ -57,6 +57,12 @@ export interface ExportDoc {
       lineStart: number | null;
       lineEnd: number | null;
       summary: string;
+      /** console fields, optional: older exports do not have them */
+      title?: string;
+      text?: string;
+      role?: 'assistant' | 'user';
+      command?: string;
+      agentType?: string;
     }>;
   };
 }
@@ -371,7 +377,12 @@ export function buildFixture(doc: ExportDoc, cityColor: CityColor, buildingColor
       summary: e.summary,
       wallClock: new Date(t0 + e.t).toISOString(),
       lineStart: e.lineStart ?? undefined,
-      lineEnd: e.lineEnd ?? undefined
+      lineEnd: e.lineEnd ?? undefined,
+      title: typeof e.title === 'string' && e.title.trim() ? e.title.trim() : undefined,
+      text: typeof e.text === 'string' && e.text.trim() ? e.text.trim() : undefined,
+      role: e.role === 'user' || e.role === 'assistant' ? e.role : undefined,
+      command: typeof e.command === 'string' && e.command.trim() ? e.command.trim() : undefined,
+      agentType: typeof e.agentType === 'string' && e.agentType.trim() ? e.agentType.trim() : undefined
     });
     if (f >= 0) prevFile = f;
   }

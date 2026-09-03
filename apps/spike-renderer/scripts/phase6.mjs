@@ -419,22 +419,20 @@ try {
 
   const chrome = await b.page.evaluate('window.__wakeChrome()');
   ok(chrome.card && chrome.action.length > 0,
-    `e the agent card is the default chrome, showing "${chrome.action}"`);
-  ok(/^(Editing|Reading|Writing|Running|Searching|Thinking|Working|Paused)/.test(chrome.action),
-    `e the current action is in plain words, not a tool name`);
+    `e the agent console is the default chrome, showing "${chrome.action}"`);
+  ok(/^(Edit|Read|Write|Run|Search|Subagent|Thinking|Working|Paused)/.test(chrome.action),
+    `e the current action is a short human phrase, not a tool name`);
   ok(chrome.time.length > 0, `e with the real event timestamp beside it (${chrome.time})`);
-  ok(chrome.trail.length >= 1 && chrome.trail.length <= 3,
-    `e ${chrome.trail.length} previous events in the trail (at most three)`);
+  ok(chrome.lines >= 1 && chrome.lines <= chrome.total && chrome.rendered <= chrome.lines,
+    `e the log holds the ${chrome.lines} events replayed so far (of ${chrome.total}), ${chrome.rendered} in the DOM`);
   ok(['following', 'manual', 'recentering'].includes(chrome.chip) && chrome.followButton,
     `e an autopilot chip ("${chrome.chip}") and a follow button`);
-  ok(chrome.progressPct > 0 && chrome.counter.includes('/'),
-    `e a session progress bar at ${chrome.progressPct}% (${chrome.counter})`);
   ok(!chrome.panel && chrome.strips === 0,
     `e no debug panel and no collapsed debug strip by default`);
   ok(chrome.controlsCollapsed === true, `e the controls panel starts collapsed`);
-  await shot(b.page, '54-agent-card.png', {
+  await shot(b.page, '54-agent-console.png', {
     chrome: true,
-    clip: { x: 0, y: view.h - 190, width: 420, height: 190 }
+    clip: { x: 0, y: view.h - 230, width: 460, height: 230 }
   });
   errors.push(...b.errors);
   await b.page.close();
@@ -445,7 +443,7 @@ try {
   const dbg = await c.page.evaluate('window.__wakeChrome()');
   ok(dbg.debug && dbg.panel && dbg.panelFps !== null,
     `e ?debug=1 brings the old panel back with the frame rate on it (${dbg.panelFps} fps)`);
-  ok(dbg.card, `e the agent card stays up alongside it`);
+  ok(dbg.card, `e the agent console stays up alongside it`);
   errors.push(...c.errors);
   await c.page.close();
 
@@ -754,7 +752,7 @@ try {
     const card = rgbOf(t.cardBg);
     const jump = rgbOf(t.jumpBg);
     ok(sameRgb(card, jump) && sameRgb(card, rgbOf(t.jump)),
-      `i ${name}: the agent card and the jump bar share the theme's opaque ground (${t.cardBg}, ${t.jumpBg})`);
+      `i ${name}: the agent console and the jump bar share the theme's opaque ground (${t.cardBg}, ${t.jumpBg})`);
   }
   await shot(l, '61-light-schematic.png', { chrome: true });
   await shot(q, '62-dark-schematic.png', { chrome: true });
@@ -804,9 +802,9 @@ try {
   await sleep(500);
   const idle = await rp.evaluate('window.__wakeChrome()');
   const glow = await rp.evaluate('window.__wakeGlow()');
-  const total = (idle.counter.split('/').pop() ?? '').trim();
+  const total = idle.total;
   ok(/^Session ended · \d+ events?$/.test(idle.action) && idle.time === '' && idle.action.includes(` ${total} `),
-    `k the card says "${idle.action}" (counter ${idle.counter})`);
+    `k the console says "${idle.action}" (${idle.lines} of ${total} lines in the log)`);
   ok(idle.followDisabled === true, `k the follow button is disabled`);
   const alive = glow.tiles.filter((t) => t.alpha > 0).length + glow.sheets.length + glow.trips.length +
     glow.markers.length + glow.pulses + glow.stickies.filter((s) => s.glow > 0).length;
@@ -816,7 +814,7 @@ try {
     const b = document.getElementById('agent').getBoundingClientRect();
     return { x: b.left, y: b.top, w: b.width, h: b.height };
   });
-  await shot(rp, '64-idle-agent-card.png', {
+  await shot(rp, '64-idle-agent-console.png', {
     chrome: true,
     clip: { x: Math.max(0, cardBox.x - 12), y: Math.max(0, cardBox.y - 12), width: cardBox.w + 24, height: cardBox.h + 24 }
   });

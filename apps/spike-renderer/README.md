@@ -23,6 +23,7 @@ WAKE_EXPORT=<name> npm run phase1   # design phase 1 checks: type and sheet
 WAKE_EXPORT=<name> npm run phase2   # design phase 2 checks: geography
 WAKE_EXPORT=<name> npm run phase5   # design phase 5 checks: labels and wayfinding
 WAKE_EXPORT=<name> npm run phase6   # phase 6 checks: aggregated schematic, roads, chrome, quiet pass
+WAKE_EXPORT=<name> npm run console  # agent console checks: log growth, scrub, line kinds, click, persistence
 WAKE_EXPORT=<name> npm run splash   # splash checks, both data sources
 HEADED=1 npm run bench # same bench in a visible window
 ```
@@ -71,7 +72,7 @@ script passes it), `dpr=N` sets `useDevicePixels`,
   with the root files district bordered and labelled),
   `52-terrain-schematic-texture.png` (the aggregated texture up close),
   `53-hover-roads.png` (one file's incident roads and nothing else),
-  `54-agent-card.png` (the card, cropped),
+  `54-agent-console.png` (the console, cropped),
   `55-reading-band-mid-pan.png` (source overlays halfway through a pan) and
   `56-reading-band-edit-glow.png` (the replay following an edit into the
   reading band: the sheet border and its sticky strip glow, the source carries
@@ -88,8 +89,8 @@ script passes it), `dpr=N` sets `useDevicePixels`,
 
 Buttons fly to each region and to each zoom level, `fit all` returns to the
 whole map. Drag to pan, scroll to zoom, hover a tile to see its roads, click it
-to focus it. The permanent chrome is the jump bar at the top and the agent card
-at the bottom left; the controls panel on the right starts collapsed and
+to focus it. The permanent chrome is the jump bar at the top and the agent
+console at the bottom left (`l` toggles its log between 7 and 20 rows); the controls panel on the right starts collapsed and
 remembers its state in `localStorage` (`c` toggles it, the chevron in its corner
 does the same). `?debug=1` adds the old debug panel top-left, with `h` to
 collapse it.
@@ -480,21 +481,48 @@ regions and it has no loose root files.
 ## Chrome
 
 `docs/design.md` section 10. **There is no debug panel in the product.** Its
-corner, bottom-left, is the agent card (`src/agentcard.ts`):
+corner, bottom-left, is the agent console (`src/agentconsole.ts`):
 
-- line 1, what the agent is doing right now in plain words, with the real event
-  timestamp small and dim beside it: `Editing src/a/b.py · L40-71`,
-  `Reading …`, `Running ruff …`, `Thinking`. The tool name is chrome and is
-  stripped; what is left of the export's summary is the useful half;
-- lines 2 to 4, the previous three events, fading with age;
-- an autopilot chip (`following` / `manual` / `recentering`) and a follow
-  button, which turns the replay on if it is off;
-- a thin session progress bar, event index over total.
+- the header: what the agent is doing right now (the latest event's `title`
+  from the export, or the old plain-words fallback when an export has none,
+  `Thinking` on a message, `Session ended · N events` once the replay is done
+  and the map has gone quiet), its real wall-clock time (HH:MM:SS) small and
+  dim, the autopilot chip (`following` / `manual` / `recentering`), a follow
+  button that turns the replay on if it is off, and a chevron;
+- the log: one line per replayed event, newest at the bottom, 7 rows tall by
+  default and 20 expanded (the chevron or `l`, remembered in `localStorage`).
+  It follows the replay unless the user scrolls up, then a small `↓ latest`
+  pill offers the way back. Only the lines before the replay cursor exist: the
+  log grows as the replay plays and truncates when the user scrubs back.
+- each line: the time, a glyph column by kind (read, edit, write, search, run,
+  message from the agent, message from the user, subagent, other) and text.
+  Tool lines show the `title`; run lines add the `command` in dimmed
+  monospace; message lines show the agent's `text` in a warmer tone with no
+  glyph background, two rows clamped, so narration reads apart from actions;
+  user messages get another glyph and a left rule; subagent lines are indented
+  one step with the `agentType` as a chip. Every field is optional and the
+  console falls back to the export's `summary` (and to nothing for `text` and
+  `command`), so an older export still reads.
+- clicking a line with a file flies there and focuses it, on its line range
+  when the event has one, at the zoom that makes the hunk readable; hovering a
+  line lights the file's sheet border (its tile, zoomed out) briefly and shows
+  its roads.
 
 Same visual language as the jump bar: opaque ground, hairline border, the pill
-radius, tracked small caps for the chip. It is DOM in the per-frame loop and
-diffs its own writes, so it never lags the replay and never rewrites a node for
-nothing.
+radius, tracked small caps for the chips, sentence case for the text. The header
+is DOM in the per-frame loop and diffs its own writes; the log is touched on
+event boundaries only (a tick, a scrub, a loop) and holds only the lines that
+intersect its scroll viewport, windowed over the array, so a session of any
+length costs the same seven to twenty nodes.
+
+`WAKE_EXPORT=<name> npm run console` checks it on a real export: replayed to
+the end the log has one line per event and the header reads `Session ended · N
+events`; a scrub back to event 10 leaves 10 lines; message and run lines carry
+their own classes; clicking a line with a file moves the camera to it; the
+expanded state survives a reload and `l` toggles it; the frame rate with the
+console up matches the same page with it hidden. Screenshots
+`71-console-collapsed.png` (mid-replay) and `72-console-expanded.png`,
+gitignored: they render real names, paths and commands.
 
 Frame rate and the internal counters live behind **`?debug=1`**, which brings
 the old panel back verbatim (its collapsed one-line strip is gone: the jump bar
@@ -884,8 +912,8 @@ which is the point:
   check is new.
 - **Light theme parity.** The ramp darkens with depth instead of lightening,
   paper is one step lighter than its desk instead of darker, labels keep their
-  contrast, the glow is retuned but still warm, and the agent card and the jump
-  bar share the theme's one opaque ground. `61-light-schematic.png`,
+  contrast, the glow is retuned but still warm, and the agent console and the
+  jump bar share the theme's one opaque ground. `61-light-schematic.png`,
   `62-dark-schematic.png`.
 - **Reduced motion** (`src/motion.ts`). Under `prefers-reduced-motion` camera
   flights are instant, the follow spring keeps gliding but ten times tighter (a
@@ -894,11 +922,12 @@ which is the point:
   the information, and arrival pulses hold one radius and leave on a fade. The
   media query is read live, so flipping the setting with the page open takes
   effect at once.
-- **Idle state** (`src/agentcard.ts`). When the replay ends (`?loop=0`, the
-  demo loops by default) the card says `Session ended · N events`, the follow
-  button is disabled and nothing on the map glows. `64-idle-agent-card.png`.
+- **Idle state** (`src/agentconsole.ts`). When the replay ends (`?loop=0`, the
+  demo loops by default) the console header says `Session ended · N events`,
+  the follow button is disabled and nothing on the map glows.
+  `64-idle-agent-console.png`.
 - **Two stale checks in the labels suite.** The collapsed debug strip check now
-  asserts the agent card in that corner. The terrain-band caption check was a
+  asserts the agent console in that corner. The terrain-band caption check was a
   stale expectation, not a regression: it demanded the schematic band at rowPx
   0.7, which the three-band ladder no longer has there since the `blocks` band
   went; the rule under test is fit, not band, so it now asserts both ends of
@@ -1037,8 +1066,8 @@ k), zero page errors, zero failures.
 | c  roads on focus | focus alone keeps the same 46 roads with nothing hovered |
 | c  the toggle | "show all roads" draws all 582 edges, and still draws 0 at the terrain band |
 | d  trips | 7 trip paths, 6 hot roads and the marker draw with the network hidden |
-| e  the agent card | the default chrome, current action in plain words with its real timestamp, a three-event trail, the `following` chip, a follow button, the progress bar at 75 % (27 / 36); no debug panel and no collapsed strip; controls collapsed |
-| e  `?debug=1` | the old panel back with the frame rate on it, the card still up |
+| e  the agent console | the default chrome, the current event's title with its real timestamp, the log holding the events replayed so far (only the visible ones in the DOM), the `following` chip, a follow button; no debug panel and no collapsed strip; controls collapsed |
+| e  `?debug=1` | the old panel back with the frame rate on it, the console still up |
 | f  fps | 120 at the terrain, schematic and reading bands; the synthetic bench unchanged at 8.3 ms and 120 fps at all four levels |
 
 **Verdict against the pass condition in `docs/spikes.md`:** pass on this

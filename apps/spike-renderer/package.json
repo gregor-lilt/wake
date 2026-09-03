@@ -15,7 +15,8 @@
     "splash": "node scripts/splash.mjs",
     "phase2": "node scripts/phase2.mjs",
     "phase5": "node scripts/phase5.mjs",
-    "phase6": "node scripts/phase6.mjs"
+    "phase6": "node scripts/phase6.mjs",
+    "console": "node scripts/console.mjs"
   },
   "dependencies": {
     "@deck.gl/core": "9.3.11",

@@ -146,7 +146,9 @@ export class Autopilot {
     this.lastEvent = null;
     this.endedAt = -1;
     this.cursor = i;
-    this.startedAt = now - i * this.cadenceMs;
+    // Event i has not happened yet: it is due one full cadence from now, not
+    // on the next tick, so a scrub lands on exactly i lines of the log.
+    this.startedAt = now - (i - 1) * this.cadenceMs;
     this.pausedFor = 0;
     this.pausedAt = now;
     const from = Math.max(0, i - 40);

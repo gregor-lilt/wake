@@ -237,52 +237,137 @@ label.slider input { width: 100%; margin: 2px 0 0; accent-color: var(--accent, #
    is and the collapsed strip is gone with it. */
 #hud .strip { display: none !important; }
 
-/* ------------------------------------------- agent card (section 10) */
+/* ---------------------------------------- agent console (section 10) */
 /* The bottom-left corner, which the debug panel used to own. Same visual
-   language as the jump bar: opaque ground, hairline border, pill radius,
-   tracked small caps for the chip. */
+   language as the jump bar: opaque ground, hairline border, tracked small
+   caps for the chips, sentence case for the text. */
 #agent {
   position: absolute;
   bottom: 12px; left: 12px;
-  width: 300px; max-width: 42vw;
-  padding: 8px 10px 7px;
+  width: 400px; max-width: 46vw;
+  padding: 7px 10px 6px;
   border: 1px solid var(--border, rgba(255,255,255,0.12));
   border-radius: 10px;
   background: var(--jump, #171b21);
   z-index: 5;
+  /* the line height is the row unit the log's windowing counts in */
+  --row: 18px;
 }
 body.nohud #agent { display: none; }
-#agent .ac-now { display: flex; align-items: baseline; gap: 8px; }
-#agent .ac-now .t {
-  flex: 1; font-size: 12.5px; font-weight: 600; line-height: 1.35;
+
+/* header: current action, its time, the chip, follow, the chevron */
+#agent .cx-head { display: flex; align-items: center; gap: 8px; min-height: 22px; }
+#agent .cx-action {
+  flex: 1; min-width: 0; font-size: 12.5px; font-weight: 600; line-height: 1.35;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-#agent .w {
+#agent .cx-time {
   font-style: normal; font-size: 9.5px; opacity: .38;
   font-variant-numeric: tabular-nums; white-space: nowrap;
 }
-#agent .ac-trail { margin: 3px 0 0; }
-#agent .ac-past { display: flex; align-items: baseline; gap: 8px; }
-#agent .ac-past .t {
-  flex: 1; font-size: 11px; line-height: 1.45;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-#agent .ac-foot { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
-#agent .ac-chip {
+#agent .cx-chip {
   font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; font-weight: 600;
   padding: 2px 7px; border-radius: 999px;
   border: 1px solid var(--border, rgba(255,255,255,0.12));
-  opacity: .6;
+  opacity: .6; white-space: nowrap;
 }
-#agent .ac-chip.live { opacity: 1; color: var(--accent, #ffb050); border-color: var(--accent, #ffb050); }
-#agent .ac-chip.manual { opacity: .8; }
-#agent .ac-foot button { font-size: 10px; padding: 2px 8px; }
-#agent .ac-count {
-  margin-left: auto; font-size: 9.5px; opacity: .45;
-  font-variant-numeric: tabular-nums;
+#agent .cx-chip.live { opacity: 1; color: var(--accent, #ffb050); border-color: var(--accent, #ffb050); }
+#agent .cx-chip.manual { opacity: .8; }
+#agent .cx-head button { font-size: 10px; padding: 2px 8px; line-height: 1.4; }
+#agent .cx-head button:disabled { opacity: .35; cursor: default; }
+#agent .cx-head button:disabled:hover { border-color: var(--border, rgba(255,255,255,0.18)); color: inherit; }
+#agent .cx-chev { width: 22px; padding: 2px 0 !important; text-align: center; opacity: .55; }
+#agent .cx-chev:hover { opacity: 1; }
+
+/* the log: a fixed number of rows, scrolling, windowed */
+#agent .cx-log {
+  position: relative;
+  margin-top: 6px;
+  height: calc(var(--row) * 7);
+  overflow-y: auto; overflow-x: hidden;
+  border-top: 1px solid var(--border, rgba(255,255,255,0.12));
+  padding-top: 3px;
+  scrollbar-width: thin;
+  /* the height changes on the base duration when the chevron is used */
+  transition: height 250ms cubic-bezier(.2,.7,.2,1);
 }
-#agent .ac-bar {
-  margin-top: 7px; height: 2px; border-radius: 2px;
-  background: rgba(127,127,127,0.22); overflow: hidden;
+@media (prefers-reduced-motion: reduce) { #agent .cx-log { transition: none; } }
+#agent .cx-spacer { position: relative; }
+#agent .cx-line {
+  position: absolute; left: 0; right: 0;
+  display: flex; align-items: flex-start; gap: 6px;
+  height: var(--row); line-height: var(--row);
+  font-size: 11px;
+  overflow: hidden;
+  border-radius: 3px;
+  padding: 0 3px 0 2px;
 }
-#agent .ac-bar i { display: block; height: 100%; background: var(--accent, #ffb050); opacity: .7; }
+#agent .cx-line.has-file { cursor: pointer; }
+#agent .cx-line.has-file:hover { background: rgba(127,127,127,0.14); }
+#agent .cx-line .t {
+  flex: none; width: 52px;
+  font-size: 9.5px; opacity: .38; font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+/* the glyph column: one glyph per kind, on a faint box for tool lines */
+#agent .cx-line .g {
+  flex: none; width: 14px; height: 14px; margin-top: 2px;
+  font-style: normal; font-size: 10px; line-height: 14px; text-align: center;
+  border-radius: 3px;
+  background: rgba(127,127,127,0.18);
+  opacity: .8;
+}
+#agent .cx-line .x {
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#agent .cx-line .x .w { overflow: hidden; text-overflow: ellipsis; }
+#agent .cx-line .chip {
+  display: inline-block; margin-right: 6px; padding: 0 5px;
+  font-size: 8.5px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase;
+  line-height: 13px; border-radius: 999px; vertical-align: 1px;
+  border: 1px solid var(--border, rgba(255,255,255,0.12)); opacity: .7;
+}
+/* edits and writes are the figure: their glyph carries the accent */
+#agent .cx-line.k-edit .g, #agent .cx-line.k-write .g { color: var(--accent, #ffb050); opacity: 1; }
+/* run lines: the title, then the command in dimmed monospace */
+#agent .cx-line.k-run .g { font-weight: 700; }
+#agent .cx-line .cmd {
+  margin-left: 8px; opacity: .5;
+  font: 10px/var(--row) ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+/* messages: the agent's own words, a warmer tone, no glyph background, two
+   rows with the overflow clamped, so narration reads apart from actions */
+#agent .cx-line.k-message-assistant, #agent .cx-line.k-message-user {
+  height: calc(var(--row) * 2);
+  color: var(--narration, #e8d9c4);
+}
+#agent .cx-line.k-message-assistant .g, #agent .cx-line.k-message-user .g {
+  background: none; opacity: .55; font-size: 13px; font-family: Georgia, serif;
+}
+#agent .cx-line.k-message-assistant .x, #agent .cx-line.k-message-user .x {
+  white-space: normal; line-height: var(--row);
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  line-clamp: 2;
+  font-size: 11px;
+}
+/* the user's messages: another glyph and a left rule */
+#agent .cx-line.k-message-user {
+  border-left: 2px solid var(--accent, #ffb050);
+  padding-left: 6px;
+  color: var(--fg, #e6eaee);
+}
+/* subagents: one step in, the agent type as a chip */
+#agent .cx-line.k-subagent { padding-left: 16px; }
+#agent .cx-line.k-subagent .g { opacity: .55; }
+
+/* the way back after scrolling up: a small pill over the log's bottom edge */
+#agent .cx-latest {
+  position: absolute; right: 14px; bottom: 10px;
+  font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase; font-weight: 600;
+  padding: 2px 8px; border-radius: 999px;
+  background: var(--jump, #171b21);
+  border-color: var(--accent, #ffb050); color: var(--accent, #ffb050);
+  opacity: .9;
+}
+#agent.expanded .cx-log { height: calc(var(--row) * 20); }

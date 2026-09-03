@@ -16,3 +16,5 @@ screenshots/4*.png
 screenshots/5*.png
 # quiet-pass shots of a real export: real names, real paths, real source
 screenshots/6*.png
+# agent console shots of a real export: real names, real paths, real commands
+screenshots/7*.png

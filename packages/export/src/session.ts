@@ -11,12 +11,15 @@
 //   - compaction rewrites the parent chain (logicalParentUuid), so events are
 //     ordered by timestamp, never by walking parentUuid
 //
-// Nothing but tool names, paths, line numbers and timestamps is read out. No
-// file contents, no oldString/newString, no prompt or assistant prose.
+// What is read out: tool names, paths, line numbers, timestamps, the shell
+// command text, search patterns, subagent descriptions, and the words of user
+// prompts and assistant text blocks (clipped). Never oldString/newString,
+// structuredPatch line content, tool results, or thinking content; a
+// thinking-only message is exported as the bare fact "Thinking".
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { isAbsolute, join, resolve as resolvePath } from 'node:path';
+import { basename, isAbsolute, join, resolve as resolvePath } from 'node:path';
 import type { EventKind, ExportEvent, ExportSession } from './schema.ts';
 
 export function projectSlug(dir: string): string {
@@ -46,6 +49,7 @@ function kindOf(tool: string): EventKind {
 
 interface RawRecord {
   type?: string;
+  uuid?: string;
   timestamp?: string;
   cwd?: string;
   sessionId?: string;
@@ -54,6 +58,7 @@ interface RawRecord {
     structuredPatch?: { newStart?: number; newLines?: number }[];
   };
   message?: {
+    id?: string;
     role?: string;
     content?: unknown;
   };
@@ -65,6 +70,24 @@ interface ToolUseBlock {
   readonly name?: string;
   readonly input?: Record<string, unknown>;
   readonly tool_use_id?: string;
+  readonly text?: string;
+}
+
+/** Whitespace-collapsed, clipped to `max` characters including the ellipsis. */
+export function clip(raw: unknown, max: number): string {
+  if (typeof raw !== 'string') return '';
+  const flat = raw.replace(/\s+/g, ' ').trim();
+  return flat.length <= max ? flat : `${flat.slice(0, max - 1).trimEnd()}\u2026`;
+}
+
+/** The words of a user or assistant message: every text block joined. */
+function textOf(record: RawRecord): string {
+  const content = record.message?.content;
+  if (typeof content === 'string') return content;
+  return blocks(record)
+    .filter((b) => b.type === 'text' && typeof b.text === 'string')
+    .map((b) => b.text as string)
+    .join(' ');
 }
 
 function blocks(record: RawRecord): ToolUseBlock[] {
@@ -244,6 +267,9 @@ export interface SessionResult {
     readonly durationMs: number;
     readonly subagentTranscripts: number;
     readonly subagentEvents: number;
+    readonly messagesByRole: { readonly user: number; readonly assistant: number };
+    readonly thinkingEvents: number;
+    readonly emptyMessagesSkipped: number;
   };
 }
 
@@ -267,6 +293,10 @@ export function buildSession(
   let bashTargets = 0;
   let editsWithLineRange = 0;
   let subagentEvents = 0;
+  let userMessages = 0;
+  let assistantMessages = 0;
+  let thinkingEvents = 0;
+  let emptyMessagesSkipped = 0;
   const missingPaths = new Set<string>();
 
   /**
@@ -274,7 +304,7 @@ export function buildSession(
    * session and becomes the event's optional `agentId` for a subagent, so
    * parallel agents stay distinguishable on one timeline.
    */
-  const ingest = (records: RawRecord[], agentId: string | null): void => {
+  const ingest = (records: RawRecord[], agentId: string | null, agentType: string | null): void => {
     // Pass 1: Edit line ranges, from the tool_result side. toolUseResult sits
     // on the wrapper of the user record, the id on its tool_result block. Ids
     // are per transcript, so this map is too.
@@ -300,13 +330,76 @@ export function buildSession(
     }
 
     // Pass 2: events.
-    const tag = agentId === null ? {} : { agentId };
-    for (const record of records) {
+    const tag = agentId === null ? {} : agentType === null ? { agentId } : { agentId, agentType };
+    // One assistant turn is split over several records that share message.id
+    // (one per content block), so "the text of this message" and "this message
+    // is thinking only" are judged per message, keyed on message.id.
+    const messageKey = (r: RawRecord, i: number): string => r.message?.id ?? r.uuid ?? `#${i}`;
+    const byMessage = new Map<string, RawRecord[]>();
+    records.forEach((r, i) => {
+      if (r.type !== 'assistant') return;
+      const key = messageKey(r, i);
+      const group = byMessage.get(key);
+      if (group) group.push(r);
+      else byMessage.set(key, [r]);
+    });
+    const seenMessages = new Set<string>();
+    for (let i = 0; i < records.length; i++) {
+      const record = records[i] as RawRecord;
       if (agentId === null && record.sessionId && sessionId === '') sessionId = record.sessionId;
       const ms = record.timestamp ? Date.parse(record.timestamp) : Number.NaN;
       if (!Number.isFinite(ms)) continue;
 
       if (record.type === 'assistant') {
+        const messageId = messageKey(record, i);
+        if (!seenMessages.has(messageId)) {
+          seenMessages.add(messageId);
+          const parts = byMessage.get(messageId) ?? [record];
+          const all = parts.flatMap((r) => blocks(r));
+          const text = clip(parts.map((r) => textOf(r)).join(' '), 240);
+          const hasTool = all.some((b) => b.type === 'tool_use');
+          const hasThinking = all.some((b) => b.type === 'thinking' || b.type === 'redacted_thinking');
+          if (text !== '') {
+            assistantMessages++;
+            staged.push({
+              ms,
+              event: {
+                kind: 'message',
+                tool: 'assistant',
+                nodeId: null,
+                path: null,
+                lineStart: null,
+                lineEnd: null,
+                summary: 'assistant message',
+                title: 'Assistant',
+                text,
+                role: 'assistant',
+                ...tag,
+              },
+            });
+          } else if (all.some((b) => b.type === 'text')) {
+            emptyMessagesSkipped++;
+          }
+          if (text === '' && !hasTool && hasThinking) {
+            // The content stays private; only the fact that the agent paused
+            // to think is exported.
+            thinkingEvents++;
+            staged.push({
+              ms,
+              event: {
+                kind: 'other',
+                tool: 'Thinking',
+                nodeId: null,
+                path: null,
+                lineStart: null,
+                lineEnd: null,
+                summary: 'Thinking',
+                title: 'Thinking',
+                ...tag,
+              },
+            });
+          }
+        }
         for (const block of blocks(record)) {
           if (block.type !== 'tool_use' || !block.name) continue;
           toolCalls++;
@@ -316,9 +409,13 @@ export function buildSession(
           const absolute = pathOf(block.input, record.cwd);
           let relative: string | null = null;
           let nodeId: number | null = null;
+          // What the title shows: repo-relative when inside the repository (even
+          // when no node exists for it), the basename only when outside.
+          let display: string | null = null;
 
           if (absolute !== null) {
             relative = relativeTo(repo, absolute);
+            display = relative === null ? basename(absolute) : relative === '' ? basename(repo) : relative;
             if (relative === null) {
               pathsOutsideRepo++;
             } else if (relative === '') {
@@ -370,6 +467,7 @@ export function buildSession(
             }
           }
 
+          const command = kind === 'run' ? clip(block.input?.['command'], 120) : '';
           staged.push({
             ms,
             event: {
@@ -380,6 +478,8 @@ export function buildSession(
               lineStart,
               lineEnd,
               summary: summarize(tool, kind, relative, block.input),
+              title: titleOf(tool, kind, display, lineStart, lineEnd, block.input),
+              ...(command === '' ? {} : { command }),
               ...tag,
             },
           });
@@ -388,11 +488,17 @@ export function buildSession(
       }
 
       if (record.type === 'user' && !record.isMeta) {
-        // A prompt, not a tool result. Content is never read, only its existence.
+        // A prompt, not a tool result.
         const content = record.message?.content;
         const isToolResult =
           Array.isArray(content) && blocks(record).some((b) => b.type === 'tool_result');
         if (isToolResult) continue;
+        const text = clip(textOf(record), 240);
+        if (text === '') {
+          emptyMessagesSkipped++;
+          continue;
+        }
+        userMessages++;
         staged.push({
           ms,
           event: {
@@ -403,6 +509,9 @@ export function buildSession(
             lineStart: null,
             lineEnd: null,
             summary: agentId === null ? 'user message' : 'agent prompt',
+            title: agentId === null ? 'User prompt' : 'Subagent prompt',
+            text,
+            role: 'user',
             ...tag,
           },
         });
@@ -410,13 +519,13 @@ export function buildSession(
     }
   };
 
-  ingest(readJsonl(transcript), null);
+  ingest(readJsonl(transcript), null, null);
 
   // Subagents live in <session>/subagents/agent-<id>.jsonl (isSidechain is
   // dead). Their tool calls are merged into the one timeline and tagged, never
   // ranked as a session of their own.
   const subagents = subagentTranscripts(transcript);
-  for (const sub of subagents) ingest(readJsonl(sub.path), sub.agentId);
+  for (const sub of subagents) ingest(readJsonl(sub.path), sub.agentId, sub.agentType);
 
   staged.sort((a, b) => a.ms - b.ms);
   const first = staged[0]?.ms ?? 0;
@@ -452,14 +561,20 @@ export function buildSession(
       durationMs: last - first,
       subagentTranscripts: subagents.length,
       subagentEvents,
+      messagesByRole: { user: userMessages, assistant: assistantMessages },
+      thinkingEvents,
+      emptyMessagesSkipped,
     },
   };
 }
 
-/** `<dir>/<session-uuid>/subagents/agent-<id>.jsonl`, sorted for determinism. */
+/**
+ * `<dir>/<session-uuid>/subagents/agent-<id>.jsonl`, sorted for determinism,
+ * with the `agentType` from the sibling `agent-<id>.meta.json` when present.
+ */
 export function subagentTranscripts(
   transcript: string,
-): { readonly path: string; readonly agentId: string }[] {
+): { readonly path: string; readonly agentId: string; readonly agentType: string | null }[] {
   const dir = join(transcript.replace(/\.jsonl$/, ''), 'subagents');
   let names: string[];
   try {
@@ -470,10 +585,68 @@ export function subagentTranscripts(
   return names
     .filter((name) => name.endsWith('.jsonl'))
     .sort()
-    .map((name) => ({
-      path: join(dir, name),
-      agentId: name.replace(/\.jsonl$/, '').replace(/^agent-/, ''),
-    }));
+    .map((name) => {
+      const stem = name.replace(/\.jsonl$/, '');
+      let agentType: string | null = null;
+      try {
+        const meta = JSON.parse(readFileSync(join(dir, `${stem}.meta.json`), 'utf8')) as {
+          agentType?: unknown;
+        };
+        if (typeof meta.agentType === 'string' && meta.agentType !== '') agentType = meta.agentType;
+      } catch {
+        // No meta file, or an unreadable one: the id alone still tags the events.
+      }
+      return { path: join(dir, name), agentId: stem.replace(/^agent-/, ''), agentType };
+    });
+}
+
+/** First word of a shell command, basename only. */
+function firstWord(command: unknown): string {
+  const first = typeof command === 'string' ? (command.trim().split(/\s+/)[0] ?? '') : '';
+  return first.replace(/^[^A-Za-z0-9_./-]+/, '').replace(/^.*\//, '').slice(0, 40);
+}
+
+/**
+ * The console line. `display` is the repo-relative path, or the basename of a
+ * path outside the repository, or null when the call names no file.
+ */
+function titleOf(
+  tool: string,
+  kind: EventKind,
+  display: string | null,
+  lineStart: number | null,
+  lineEnd: number | null,
+  input: Record<string, unknown> | undefined,
+): string {
+  const range =
+    lineStart === null ? '' : lineEnd === null ? `L${lineStart}` : `L${lineStart}-${lineEnd}`;
+  switch (kind) {
+    case 'read':
+      return display === null ? tool : `Read ${display}${range === '' ? '' : `:${range}`}`;
+    case 'edit':
+      return display === null ? tool : `Edit ${display}${range === '' ? '' : ` ${range}`}`;
+    case 'write':
+      return display === null ? tool : `Write ${display}`;
+    case 'search': {
+      const pattern = clip(input?.['pattern'], 40);
+      return pattern === '' ? 'Search' : `Search ${pattern}`;
+    }
+    case 'run': {
+      const head = firstWord(input?.['command']);
+      return head === '' ? 'Run' : `Run ${head}`;
+    }
+    default:
+      break;
+  }
+  if (tool === 'Task' || tool === 'Agent') {
+    const description = clip(input?.['description'], 60);
+    return description === '' ? 'Subagent' : `Subagent: ${description}`;
+  }
+  if (tool === 'Skill') {
+    const name = clip(input?.['skill'], 40);
+    return name === '' ? 'Skill' : `Skill ${name}`;
+  }
+  return tool;
 }
 
 /**
@@ -491,8 +664,7 @@ function summarize(
     const command = input?.['command'];
     // First word only, and only its basename: an invoked script's full path is
     // not part of the story the map tells, and arguments can contain anything.
-    const first = typeof command === 'string' ? (command.trim().split(/\s+/)[0] ?? '') : '';
-    const head = first.replace(/^[^A-Za-z0-9_./-]+/, '').replace(/^.*\//, '').slice(0, 40);
+    const head = firstWord(command);
     const target = relative === null ? '' : ` ${relative}`;
     return head === '' ? tool : `${tool} ${head}${target}`;
   }

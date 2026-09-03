@@ -228,11 +228,17 @@ user works. So labels are anchored to the viewport, not to corners.
 ## 10. Chrome
 
 - There is no debug panel in the product. Its place, bottom-left, is taken by
-  the agent card: one line for what the agent is doing right now (tool, file,
-  line range), a short trail of the last few events fading with age,
-  autopilot state and a follow button. It is the only always-visible panel
-  besides the jump bar and the minimap. Frame rate and internals live behind
-  a debug flag.
+  the agent console: on top, one line for what the agent is doing right now
+  (tool, file, line range) with the autopilot chip and follow button; below
+  it a log of six to eight lines, expandable to about twenty, newest at the
+  bottom, auto-following unless the user scrolls up. Each line carries the
+  time, a glyph for its kind (read, edit, write, search, run, message,
+  subagent) and text. Tool lines name the file and line range, run lines
+  show the command, message lines show the agent's own words trimmed to a
+  sentence or two in a distinct tone, so narration reads apart from actions.
+  Clicking a line with a file flies there. The console is the only
+  always-visible panel besides the jump bar and the minimap. Frame rate and
+  internals live behind a debug flag.
 - The controls panel is collapsed by default and remembers its state.
 - The minimap appears at schematic zoom and deeper, bottom right, and shows
   the viewport on the whole map. It is the only permanent overlay.
@@ -414,3 +420,14 @@ survives the edits above.
   its first frame because deck.gl's view-state transition does not run.
   Autopilot is unaffected (it uses damping), region buttons and jump-bar
   crumbs jump instead of flying. To fix before the app.
+- 2026-09-03. Review: the agent card showed tool calls but not what the agent
+  was actually doing. Decided: the card becomes an agent console with a
+  scrolling log that includes the agent's own narration (assistant messages
+  trimmed) and full shell commands, both carried by the session export, which
+  is gitignored so the leak rule is unaffected.
+- 2026-09-03. Agent console shipped: header with current action, time,
+  autopilot chip and follow, a windowed log (7 rows, 20 expanded) of titled
+  events including the agent's narration, user prompts, full commands and
+  subagent lines, growing with the replay and truncating on scrub. Click
+  flies to the file, hover glows its sheet. 15 checks plus phase 6 green,
+  120 fps.

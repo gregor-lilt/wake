@@ -14,6 +14,11 @@
 // definition). Nothing was removed or renamed and rects are untouched, so a
 // version-2 reader parses a version-3 payload unchanged; only `lineEnd` and a
 // symbol node's `size` carry different numbers than before.
+//
+// Still version 3, additive: session events carry `title` (always), and
+// optionally `text`/`role` (messages), `command` (runs) and `agentType`
+// (subagent events), so the agent console can show what the agent did and
+// said. The export file is gitignored, which is what allows prose in it.
 
 export type NodeKind = 'dir' | 'file' | 'symbol';
 
@@ -97,7 +102,7 @@ export interface ExportEvent {
   readonly path: string | null;
   readonly lineStart: number | null;
   readonly lineEnd: number | null;
-  /** Tool name plus repo-relative path. Never file contents or prose. */
+  /** Tool name plus repo-relative path; for runs, the first word only. */
   readonly summary: string;
   /**
    * Optional. Present only on events that came from a subagent transcript
@@ -106,6 +111,33 @@ export interface ExportEvent {
    * event belongs to the main session.
    */
   readonly agentId?: string;
+  /**
+   * Optional, subagent events only. The `agentType` from the sibling
+   * `agent-<id>.meta.json` (e.g. `Explore`, `general-purpose`), when that file
+   * exists and carries one.
+   */
+  readonly agentType?: string;
+  /**
+   * Short human phrase for the agent console, present on every event:
+   * `Read layout.ts:L10-40`, `Edit tree.ts L5-9`, `Search foo.*bar`,
+   * `Run npm`, `Subagent: ...`, `Skill name`, `Thinking`, or the tool name.
+   * Paths are repo-relative, a path outside the repository is its basename.
+   */
+  readonly title: string;
+  /**
+   * `message` events only: the words themselves, whitespace-collapsed and
+   * clipped to 240 characters (an ellipsis marks a cut). For an assistant
+   * message this is every text block of that message joined with a space.
+   */
+  readonly text?: string;
+  /** `message` events only: who spoke. */
+  readonly role?: 'user' | 'assistant';
+  /**
+   * `run` events only: the shell command, whitespace-collapsed and clipped
+   * to 120 characters (an ellipsis marks a cut). `summary` still holds only
+   * the first word.
+   */
+  readonly command?: string;
 }
 
 export interface ExportSession {

@@ -21,11 +21,14 @@ Three sources, no new machinery:
 - `~/.claude/projects/<slug>/<session>.jsonl` for the session.
 
 **What leaves the analysed repository:** paths, symbol names, line numbers,
-blob sizes and aggregate counts. Nothing else. No source text, no
-`oldString`/`newString`, no `structuredPatch` line content, no prompts, no
-assistant prose, no shell command arguments. The output lands in
-`<wake>/.wake/exports/<repo-basename>.json`, which is gitignored, and is never
-committed.
+blob sizes and aggregate counts, plus, from the session, what the agent did
+and said: shell commands, search patterns, subagent descriptions, and the words
+of user prompts and assistant messages (clipped). Never source text,
+`oldString`/`newString`, `structuredPatch` line content, tool results or
+thinking content. The output lands in
+`<wake>/.wake/exports/<repo-basename>.json`, which is **gitignored and never
+committed**; that is what allows prose inside it. Nothing from the target
+repository or its sessions belongs in a tracked file, this README included.
 
 ## Run it
 
@@ -59,7 +62,9 @@ summary block printed to stdout.
 ## Schema (`schemaVersion: 3`)
 
 Version 3 is version 2 plus two optional fields on symbol nodes and a real
-value in a field that was already there. Nothing was removed or renamed.
+value in a field that was already there. Nothing was removed or renamed. The
+session events later gained `title` (always present) and the optional `text`,
+`role`, `command` and `agentType`, all additive, so the version stays 3.
 
 ```jsonc
 {
@@ -94,7 +99,12 @@ value in a field that was already there. Nothing was removed or renamed.
         "path": null,                 // repo-relative, or null
         "lineStart": null, "lineEnd": null,
         "summary": "Read some/file.py",
-        "agentId": "a1b2c3" }        // optional, present only on subagent events
+        "title": "Read some/file.py:L10-40",  // always present, see below
+        "text": "...",                // message events only, <= 240 chars
+        "role": "assistant",          // message events only: "user" | "assistant"
+        "command": "npm test",        // run events only, <= 120 chars
+        "agentId": "a1b2c3",          // optional, present only on subagent events
+        "agentType": "Explore" }      // optional, subagent events with a meta.json
     ]
   }
 }
@@ -194,6 +204,32 @@ it unchanged except for one line: `fetchExport` rejects anything but
    traffic. `write` events also carry a line range when the tool result had a
    `structuredPatch` (a new file's full extent); only `edit` events are counted
    as "edits with a line range" in the summary.
+6. Events carry what the agent did and said, for the agent console
+   (docs/design.md section 10). All strings are whitespace-collapsed and, when
+   clipped, end in an ellipsis that counts toward the limit.
+   - `title`, on every event. `Read <path>[:L<start>-<end>]`,
+     `Edit <path> L<start>-<end>` (range from the `structuredPatch`),
+     `Write <path>`, `Search <pattern, 40>`, `Run <first word>`,
+     `Subagent: <description, 60>`, `Skill <name>`, `Thinking`, `User prompt`,
+     `Subagent prompt`, `Assistant`, and otherwise the tool name. Paths are
+     repo-relative, even for a file that has no node; a path outside the
+     repository is reduced to its basename.
+   - `text` and `role`, on every `message` event. An assistant message is all
+     of its text blocks joined with a space (a turn is split over several
+     records sharing `message.id`), clipped to 240. User prompts are events
+     too, with `role: "user"`, clipped the same way. A message that is empty
+     after clipping is skipped, so every `message` event has a non-empty
+     `text`.
+   - `command`, on every `run` event: the whole command, clipped to 120.
+     `summary` is unchanged and still holds only the first word.
+   - `agentType`, on subagent events whose sibling `agent-<id>.meta.json`
+     names one.
+   - Thinking blocks are never exported. A message that consists of thinking
+     only (no text, no tool call) becomes a kind `other` event titled
+     `Thinking`, so the console can show the pause without the content.
+   - All four are asserted before the file is written: no event without a
+     `title`, no `message` without `text` and `role`, no `run` without
+     `command`.
 
 ## What the exporter does beyond reading the two tools
 
@@ -284,8 +320,9 @@ Events are ordered by timestamp, never by walking `parentUuid`: compaction
 rewrites the parent chain (`logicalParentUuid`). `isSidechain` is dead: subagent
 transcripts live in `<session>/subagents/agent-<id>.jsonl`. Those are **merged
 into the parent session's timeline** by timestamp and tagged with `agentId`
-(the `<id>` from the filename), so parallel agents interleave on one clock and
-the renderer can give each its own cursor. A subagent transcript is never ranked
+(the `<id>` from the filename) and, when `agent-<id>.meta.json` exists beside
+it, `agentType`, so parallel agents interleave on one clock and the renderer
+can give each its own cursor and label. A subagent transcript is never ranked
 as a session of its own.
 
 Edit line ranges come from the `toolUseResult.structuredPatch` on the matching
@@ -299,7 +336,8 @@ A `run` event whose command contains an exact match for a tracked file path gets
 that file's `nodeId` and `path`. Without it a shell-driven session has no
 position on the map at all, and in the measured session shell commands were 61%
 of all events. The `summary` still holds only the first word of the command,
-reduced to its basename, and never an argument.
+reduced to its basename; the whole command, clipped to 120 characters, is in
+`command`.
 
 ## Measured run
 
@@ -369,8 +407,12 @@ Run with `--worktree`.
 | spans past the end of their file | 0 of 3 021, checked against the on-disk line count of every file |
 | file import edges | 582 from 1 498 rows (92 + 532 resolved, **874 unresolved**, all third-party) |
 | symbol call edges | 3 578 |
-| events | 36 |
-| by kind | 23 run, 5 edit, 4 read, 2 write, 1 message, 1 other |
+| events | 43 |
+| by kind | 23 run, 8 message, 5 edit, 4 read, 2 write, 1 other |
+| message events | 7 assistant, 1 user, 0 skipped as empty |
+| thinking-only turns | 0 |
+| events with a `title` / messages with `text` and `role` / runs with `command` | 43 of 43 / 8 of 8 / 23 of 23 |
+| clipped at the limit | 2 of 8 texts, 19 of 23 commands |
 | events mapped to a file node | 25 (11 direct file tools + 14 shell commands) |
 | edits with a `structuredPatch` line range | 5 of 5 |
 | subagent transcripts merged | 0 (this session spawned none) |
@@ -386,4 +428,7 @@ name it.
 The subagent merge was verified separately against a session that does spawn
 them: 17 subagent transcripts merged into one monotonic timeline, 1 375 of
 1 491 events tagged with one of 17 distinct `agentId` values, interleaved with
-the main session's own events.
+the main session's own events. `agentType` was verified on a second such
+session: 5 subagent transcripts, 61 of 61 subagent events carrying one of 2
+distinct types, 161 events in total, all with a `title`, monotonic `t`,
+validation ok.

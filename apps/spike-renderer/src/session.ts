@@ -10,7 +10,7 @@
 import { makeRng } from './rng';
 import type { Repo } from './repo';
 
-export type EventKind = 'read' | 'edit' | 'write' | 'search' | 'run' | 'message' | 'other';
+export type EventKind = 'read' | 'edit' | 'write' | 'search' | 'run' | 'message' | 'subagent' | 'other';
 
 /** How strongly an event lights up the city it lands on. */
 export function heatOf(kind: EventKind): number {
@@ -35,6 +35,18 @@ export interface SessionEvent {
   /** 1-based source range the tool call touched, only on a replayed session */
   lineStart?: number;
   lineEnd?: number;
+  /**
+   * The console's own fields (docs/design.md section 10), all optional: an
+   * export without them falls back to `summary`. `title` is a short human
+   * phrase for any tool event, `text` the agent's or the user's words on a
+   * message, `command` the shell line on a run, `agentType` the kind of
+   * subagent on a subagent event.
+   */
+  title?: string;
+  text?: string;
+  role?: 'assistant' | 'user';
+  command?: string;
+  agentType?: string;
 }
 
 export interface Session {

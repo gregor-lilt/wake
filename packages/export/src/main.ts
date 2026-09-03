@@ -171,6 +171,10 @@ async function main(): Promise<void> {
   say(`  by kind       ${JSON.stringify(ss.byKind)}`);
   say(`  subagents     ${ss.subagentTranscripts} transcripts merged, ${ss.subagentEvents} tool events tagged`);
   say(
+    `  messages      ${ss.messagesByRole.assistant} assistant, ${ss.messagesByRole.user} user, ` +
+      `${ss.emptyMessagesSkipped} empty skipped, ${ss.thinkingEvents} thinking-only turns`,
+  );
+  say(
     `  paths         ${ss.pathsOutsideRepo} outside the repo, ${ss.dirTargets} targeting a directory, ` +
       `${ss.bashTargets} shell commands matched to a file, ` +
       `${ss.missingFileNodes} in-repo paths with no node at HEAD, ` +
@@ -226,6 +230,11 @@ async function main(): Promise<void> {
   }
   for (const event of session.session.events) {
     if (event.nodeId !== null && !isFile(event.nodeId)) problems.push(`event nodeId is not a file`);
+    if (typeof event.title !== 'string' || event.title === '') problems.push(`event without a title`);
+    if (event.kind === 'message' && (!event.text || !event.role)) {
+      problems.push(`message event without text or role`);
+    }
+    if (event.kind === 'run' && !event.command) problems.push(`run event without a command`);
   }
   const rectIds = new Set(tree.rects.map((r) => r[0]));
   for (const node of tree.nodes) {

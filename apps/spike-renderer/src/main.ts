@@ -24,9 +24,9 @@ import { makeTheme } from './theme';
 import type { RGB, Theme, ThemeName } from './theme';
 import { buildHud, buildControls } from './hud';
 import type { Toggles } from './hud';
-import { buildAgentCard, actionWords, TRAIL_ROWS } from './agentcard';
+import { buildAgentConsole, fallbackTitle, lineKindOf } from './agentconsole';
 import { flightMs, reducedMotion, onMotionChange, dampTime } from './motion';
-import type { AgentEventLine } from './agentcard';
+import type { ConsoleLine, ConsoleHeader } from './agentconsole';
 import { runBench, formatBench } from './bench';
 import type { BenchResult } from './bench';
 import { makeRng } from './rng';
@@ -685,72 +685,66 @@ let focusAt = 0;
 const FOCUS_MS = 7000;
 
 /**
- * The agent card's own view of the replay (docs/design.md section 10): the
- * current action in plain words, the previous three events fading with age,
- * the autopilot state and the session position.
+ * The agent console's own view of the replay (docs/design.md section 10): one
+ * described line per event, built once when the session is known, and a
+ * header with the current action, the autopilot state and the idle flag.
  *
- * The events come from the replay cursor, not from the camera, so the card is
- * right even while the user is panning somewhere else entirely.
+ * The lines come from the replay cursor, not from the camera, so the console
+ * is right even while the user is panning somewhere else entirely.
  */
-function cardEvent(i: number): { text: string; time: string } | null {
-  const e = session.events[i];
-  if (!e) return null;
-  return {
-    text: actionWords({
-      kind: e.kind,
-      tool: e.tool,
-      path: e.file >= 0 ? pathOf(repo, e.file) : null,
-      lineStart: e.lineStart,
-      lineEnd: e.lineEnd,
-      summary: e.summary
-    }),
-    time: clockOf(e.wallClock, e.t)
-  };
+function consoleLines(): ConsoleLine[] {
+  return session.events.map((e) => {
+    const path = e.file >= 0 ? pathOf(repo, e.file) : null;
+    // The export's `title` when it has one, the old plain-words fallback
+    // otherwise, so an older export still reads.
+    const title = e.title ?? fallbackTitle({
+      kind: e.kind, tool: e.tool, path, lineStart: e.lineStart, lineEnd: e.lineEnd, summary: e.summary
+    });
+    const kind = lineKindOf(e.kind, e.role);
+    const isMessage = kind === 'message-assistant' || kind === 'message-user';
+    return {
+      kind,
+      time: clockOf(e.wallClock, e.t),
+      text: isMessage ? (e.text ?? title) : title,
+      command: e.kind === 'run' ? e.command : undefined,
+      agentType: e.kind === 'subagent' ? e.agentType : undefined,
+      file: e.file
+    };
+  });
 }
 
-/** The event timestamp, small and dim on the card: real wall clock if there is one. */
+/** The event timestamp, small and dim: the real wall clock (HH:MM:SS) if there is one. */
 function clockOf(wallClock: string | undefined, t: number): string {
-  if (wallClock) return `${wallClock.slice(11, 19)}Z`;
+  if (wallClock) {
+    const d = new Date(wallClock);
+    const two = (n: number) => String(n).padStart(2, '0');
+    return `${two(d.getHours())}:${two(d.getMinutes())}:${two(d.getSeconds())}`;
+  }
   return `t+${(t / 1000).toFixed(1)}s`;
 }
 
-function cardState(now: number): {
-  action: string; time: string; trail: AgentEventLine[];
-  camState: string; index: number; total: number; idle?: boolean;
-} {
+let consoleLineList: ConsoleLine[] = [];
+
+function consoleHeader(now: number): ConsoleHeader {
   const total = session.events.length;
-  if (!toggles.autopilot) {
-    return {
-      action: 'Autopilot off',
-      time: '',
-      trail: [],
-      camState: 'off',
-      index: 0,
-      total
-    };
-  }
-  const at = Math.min(Math.max(autopilot.cursor - 1, 0), Math.max(total - 1, 0));
-  const ev = cardEvent(at);
-  const trail: AgentEventLine[] = [];
-  for (let k = at - 1; k >= 0 && trail.length < TRAIL_ROWS; k--) {
-    const e = cardEvent(k);
-    if (e) trail.push(e);
-  }
+  if (!toggles.autopilot) return { action: 'Autopilot off', time: '', camState: 'off' };
+  const i = autopilot.cursor - 1;
+  const e = i >= 0 ? session.events[i] : null;
+  const line = i >= 0 ? consoleLineList[i] : null;
   const head = autopilot.paused ? 'Paused \u00b7 ' : '';
   // The replay has run out and the map has gone quiet: nothing is happening
   // and nothing is left to follow (docs/design.md section 10).
   const idle = autopilot.idle(now);
+  // A message's title ("Thinking"), not its words: the header is one line.
+  const current = e && line ? (e.kind === 'message' ? (e.title ?? 'Thinking') : line.text) : null;
   return {
     action: idle
       ? `Session ended \u00b7 ${total} event${total === 1 ? '' : 's'}`
-      : (ev ? head + ev.text : 'Waiting for the agent'),
-    time: idle ? '' : (ev ? ev.time : ''),
-    trail,
+      : (current !== null ? head + current : 'Waiting for the agent'),
+    time: idle || !line ? '' : line.time,
     idle,
     // The chip is a state, not a sentence: following / manual / recentering.
-    camState: cam.state === 'follow' ? 'following' : cam.state,
-    index: autopilot.cursor,
-    total
+    camState: cam.state === 'follow' ? 'following' : cam.state
   };
 }
 
@@ -1548,6 +1542,7 @@ function applyCss(): void {
   s.setProperty('--code-bg', theme.css.codeBg);
   s.setProperty('--code-fg', theme.css.codeFg);
   s.setProperty('--jump', theme.css.jump);
+  s.setProperty('--narration', theme.css.narration);
   s.colorScheme = theme.name;
   document.body.style.background = theme.css.bg;
 }
@@ -1697,16 +1692,44 @@ const hud = buildHud(
   debugHud
 );
 /**
- * The agent card. It is the panel the design gives the bottom-left corner
+ * The agent console. It is the panel the design gives the bottom-left corner
  * (section 10), and it is always on: it is the only place the user sees what
  * the agent is doing when the camera is not following it.
  */
-const agentCard = buildAgentCard(document.getElementById('agent')!, {
+const HOVER_GLOW_MS = 1400;
+const agentConsole = buildAgentConsole(document.getElementById('agent')!, {
   follow: () => {
     if (!toggles.autopilot) controls.setToggle('autopilot', true);
     cam.engage();
+  },
+  go: (i) => {
+    const e = session.events[i];
+    if (!e || e.file < 0) return;
+    focusedFile = e.file;
+    labelKey = '';
+    if (e.lineStart) {
+      // The line range, framed the way the replay frames an edit: aim at the
+      // middle of the hunk at the zoom that makes the whole of it readable.
+      const span = Math.max(1, (e.lineEnd ?? e.lineStart) - e.lineStart + 1);
+      const rowPx = Math.max(READ_PX, Math.min(ROW_PX_MAX, (view().h * 0.72) / span));
+      flyToPose(codeView.focusPose(e.file, e.lineStart - 1 + Math.floor(span / 2), rowPx), 800, true);
+    } else {
+      flyToPose(codeView.focusPose(e.file, null, READ_PX), 800, true);
+    }
+    redrawPending = true;
+  },
+  hover: (i) => {
+    const f = i >= 0 ? (session.events[i]?.file ?? -1) : -1;
+    // A brief glow on the file's sheet border (its tile, zoomed out), and its
+    // roads while the pointer rests on the line.
+    if (f >= 0) touch(f, performance.now(), false, HOVER_GLOW_MS);
+    hoverFile = f;
+    redrawPending = true;
   }
 });
+consoleLineList = consoleLines();
+agentConsole.setLines(consoleLineList);
+let consoleCursor = -1;
 
 function countVisible(): { cities: number; edges: number; buildings: number } {
   const [x0, y0, x1, y1] = bounds();
@@ -1817,10 +1840,15 @@ function loop(now: number): void {
 
   // Wayfinding is DOM and cheap, and its region labels are obstacles for the
   // caption collision below, so it runs before the layers are rebuilt. The
-  // agent card is DOM too and diffs its own writes, so it can run per frame
-  // and never lag the replay.
+  // console header is DOM too and diffs its own writes, so it can run per
+  // frame and never lag the replay; the log is touched on event boundaries
+  // only, when the cursor has moved (a tick, a scrub, a loop).
   stepWayfinding();
-  agentCard.update(cardState(now));
+  agentConsole.setHeader(consoleHeader(now));
+  if (autopilot.cursor !== consoleCursor) {
+    consoleCursor = autopilot.cursor;
+    agentConsole.setCursor(consoleCursor);
+  }
 
   if (redrawPending) {
     redrawPending = false;
@@ -1894,20 +1922,7 @@ const controls = buildControls(
     pauseAgent: (paused) => autopilot.setPaused(paused, performance.now()),
     setWait: (v) => { cam.params.wait = v; },
     setTime: (v) => { cam.params.time = v; },
-    scrub: (i) => {
-      const now = performance.now();
-      autopilot.seekTo(i, now);
-      focus = null;
-      // Rebuild the applied set from the events before the cursor, already
-      // past their animation, so scrubbing shows the state at that point.
-      applied.clear();
-      for (let k = 0; k < Math.min(i, session.events.length); k++) {
-        const e = session.events[k];
-        if (e.file >= 0 && (e.kind === 'edit' || e.kind === 'write')) applied.set(e.file, now - APPLY_MS);
-      }
-      appliedVersion++;
-      redrawPending = true;
-    },
+    scrub: (i) => scrubTo(i),
     setSpeed: (ms) => autopilot.setCadence(ms, performance.now()),
     setTheme: (t) => {
       theme = makeTheme(t);
@@ -1922,6 +1937,26 @@ const controls = buildControls(
   },
   { ...toggles, wait: cam.params.wait, time: cam.params.time, cadenceMs: autopilot.cadenceMs, events: autopilot.eventCount, scrubbable: true }
 );
+
+/** Jump the replay to event `i`: the controls' scrubber and the test hook. */
+function scrubTo(i: number): void {
+  const now = performance.now();
+  autopilot.seekTo(i, now);
+  focus = null;
+  // Rebuild the applied set from the events before the cursor, already
+  // past their animation, so scrubbing shows the state at that point.
+  applied.clear();
+  for (let k = 0; k < Math.min(i, session.events.length); k++) {
+    const e = session.events[k];
+    if (e.file >= 0 && (e.kind === 'edit' || e.kind === 'write')) applied.set(e.file, now - APPLY_MS);
+  }
+  appliedVersion++;
+  redrawPending = true;
+}
+(window as unknown as { __wakeScrub?: (i: number) => void }).__wakeScrub = (i) => scrubTo(i);
+(window as unknown as { __wakeCadence?: (ms: number) => void }).__wakeCadence = (ms) => {
+  autopilot.setCadence(ms, performance.now());
+};
 
 // --------------------------------------------------------------------- bench
 async function startBench(): Promise<BenchResult> {
@@ -2041,6 +2076,12 @@ if (toggles.autopilot) {
 // Escape clears focus (docs/design.md section 8), so the jump bar goes back to
 // describing the viewport centre.
 window.addEventListener('keydown', (e) => {
+  const inField = e.target instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
+  // `l` toggles the console's log between its two heights.
+  if (e.key === 'l' && !inField && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    agentConsole.toggleExpanded();
+    return;
+  }
   if (e.key !== 'Escape') return;
   focusedFile = -1;
   labelKey = '';
@@ -2513,26 +2554,25 @@ function nearestOther(f: number): number {
   };
 };
 
-/** What the agent card is showing, and whether the debug panel exists. */
+/** What the agent console is showing, and whether the debug panel exists. */
 (window as unknown as { __wakeChrome?: () => unknown }).__wakeChrome = () => {
   const card = document.getElementById('agent');
   const panel = document.getElementById('hud');
-  const rows = card
-    ? [...card.querySelectorAll<HTMLElement>('.ac-past')].filter((r) => !r.hidden)
-      .map((r) => (r.querySelector('.t')?.textContent ?? '').trim())
-    : [];
+  const probe = agentConsole.probe();
   return {
     debug: debugHud,
     card: card !== null && card.childElementCount > 0,
     action: (card?.querySelector('#ac-action')?.textContent ?? '').trim(),
     time: (card?.querySelector('#ac-time')?.textContent ?? '').trim(),
-    trail: rows,
     chip: (card?.querySelector('#ac-chip')?.textContent ?? '').trim(),
     followButton: card?.querySelector('#ac-follow') !== null,
     /** dead once the session has ended: nothing left to follow */
     followDisabled: (card?.querySelector('#ac-follow') as HTMLButtonElement | null)?.disabled ?? null,
-    progressPct: parseFloat((card?.querySelector('#ac-fill') as HTMLElement | null)?.style.width ?? '0'),
-    counter: (card?.querySelector('#ac-count')?.textContent ?? '').trim(),
+    /** the log: lines that exist (before the cursor), of the session's total */
+    lines: probe.cursor,
+    total: probe.total,
+    rendered: probe.rendered,
+    expanded: probe.expanded,
     /** the old panel: present only under ?debug=1 */
     panel: panel !== null && panel.childElementCount > 0,
     panelFps: (panel?.querySelector('#h-fps')?.textContent ?? null),
@@ -2540,6 +2580,26 @@ function nearestOther(f: number): number {
     strips: document.querySelectorAll('#hud .strip').length,
     controlsCollapsed: document.getElementById('controls')?.classList.contains('collapsed') ?? null
   };
+};
+
+/** The console's log in detail: rendered lines, their classes, follow state. */
+(window as unknown as { __wakeConsole?: () => unknown }).__wakeConsole = () => ({
+  ...agentConsole.probe(),
+  logHeight: document.getElementById('ac-log')?.getBoundingClientRect().height ?? 0,
+  domLines: document.querySelectorAll('#agent .cx-line').length,
+  /** which event indices have a file, so a test can pick a clickable line */
+  withFile: session.events.map((e, i) => (e.file >= 0 ? i : -1)).filter((i) => i >= 0)
+});
+/** Test hook: click a log line by event index, as the pointer would. */
+(window as unknown as { __wakeConsoleClick?: (i: number) => boolean }).__wakeConsoleClick = (i) => {
+  const el = document.querySelector<HTMLElement>(`#agent .cx-line[data-i="${i}"]`);
+  if (!el) return false;
+  el.click();
+  return true;
+};
+(window as unknown as { __wakeConsoleToggle?: (on?: boolean) => boolean }).__wakeConsoleToggle = (on) => {
+  agentConsole.toggleExpanded(on);
+  return agentConsole.expanded;
 };
 
 /** Files whose sheet is folded, and the export's own effective line counts. */
