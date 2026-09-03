@@ -1,0 +1,18 @@
+{
+  "name": "@wake/export",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Exports one repository plus one Claude Code session into a single JSON file the renderer can load instead of a synthetic fixture.",
+  "engines": {
+    "node": ">=23.6"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "export": "node --experimental-strip-types --experimental-sqlite --no-warnings=ExperimentalWarning src/main.ts"
+  },
+  "devDependencies": {
+    "@types/node": "22.15.3",
+    "typescript": "5.9.2"
+  }
+}

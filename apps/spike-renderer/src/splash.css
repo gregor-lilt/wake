@@ -1,0 +1,64 @@
+/*
+ * The loading splash (assets/brand/splash-preview.html is the approved look).
+ * Linked from index.html rather than imported from TypeScript so the splash is
+ * styled by the time the module graph starts evaluating: it is the first thing
+ * on screen and must never flash unstyled.
+ *
+ * Motion follows docs/design.md section 1: one easing curve, durations 120 /
+ * 250 / 600 ms. The bar and the status line appear and advance at the base
+ * duration, the splash leaves by fading at the slow one. Nothing bounces.
+ */
+#splash {
+  --splash-bg: #0a0d1a;
+  --splash-fg: #e8eaf2;
+  --splash-dim: #9aa1b8;
+  --splash-faint: #5c6380;
+  --splash-ease: cubic-bezier(0.45, 0, 0.55, 1);
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(1200px 800px at 50% 45%, #161c34 0%, #0a0d1a 70%);
+  color: var(--splash-fg);
+  font: 12px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", ui-sans-serif, "Segoe UI", Roboto, sans-serif;
+  opacity: 1;
+  transition: opacity 600ms var(--splash-ease);
+}
+#splash.leaving { opacity: 0; }
+
+#splash .stack { display: flex; flex-direction: column; align-items: center; gap: 28px; }
+#splash .icon { width: 128px; height: 128px; filter: drop-shadow(0 20px 40px rgba(0, 0, 0, 0.6)); }
+#splash .word { font-size: 34px; font-weight: 600; letter-spacing: 0.02em; margin-top: -6px; }
+#splash .tag {
+  font-size: 14px; color: var(--splash-dim);
+  letter-spacing: 0.14em; text-transform: uppercase; margin-top: -18px;
+}
+#splash .bar {
+  width: 280px; height: 3px; border-radius: 2px;
+  background: rgba(255, 255, 255, 0.08); overflow: hidden; margin-top: 26px;
+}
+#splash .bar i {
+  display: block; height: 100%; width: 0;
+  background: linear-gradient(90deg, #f4a742, #ffd27a);
+  border-radius: 2px;
+  transition: width 250ms var(--splash-ease);
+}
+#splash .status {
+  font-size: 13px; color: var(--splash-dim); height: 18px;
+  font-variant-numeric: tabular-nums;
+}
+#splash .keys {
+  position: fixed; bottom: 22px; left: 0; right: 0;
+  text-align: center; font-size: 12px; color: var(--splash-faint);
+}
+
+/* The status line and the footer appear by sliding in, per section 1. */
+#splash .status, #splash .keys { animation: splash-in 250ms var(--splash-ease) both; }
+#splash .keys { animation-delay: 120ms; }
+@keyframes splash-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+@media (prefers-reduced-motion: reduce) {
+  #splash, #splash .bar i { transition-duration: 1ms; }
+  #splash .status, #splash .keys { animation: none; }
+}

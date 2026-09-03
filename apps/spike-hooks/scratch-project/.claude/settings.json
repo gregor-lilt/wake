@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:7777/hook",
+            "timeout": 10,
+            "statusMessage": "Wake: session start"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:7777/hook",
+            "timeout": 30,
+            "statusMessage": "Wake: fence check"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:7777/hook",
+            "timeout": 600,
+            "statusMessage": "Wake: waiting for approval in the browser"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:7777/hook",
+            "timeout": 15,
+            "statusMessage": "Wake: post-tool"
+          }
+        ]
+      }
+    ],
+    "PostToolBatch": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:7777/hook",
+            "timeout": 30,
+            "statusMessage": "Wake: batch gate"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:7777/hook",
+            "timeout": 10,
+            "statusMessage": "Wake: stop"
+          }
+        ]
+      }
+    ]
+  }
+}

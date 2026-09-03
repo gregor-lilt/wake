@@ -1,0 +1,16 @@
+# real repository exports are served from the gitignored <wake>/.wake/exports,
+# never copied here
+.data/
+# these two render real paths from a private repository as map labels
+screenshots/11-*.png
+screenshots/12-*.png
+# real source and real paths from a private repository, rendered as code
+screenshots/13-*.png
+screenshots/14-*.png
+# phase-1 and phase-2 review shots of a real export: real source, real paths
+screenshots/2*.png
+screenshots/3*.png
+# phase-5 wayfinding shots of a real export: real names, real source, real paths
+screenshots/4*.png
+# phase-6 review shots of a real export: real names, real paths, real source
+screenshots/5*.png

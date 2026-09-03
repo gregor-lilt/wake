@@ -103,4 +103,97 @@ constructs failed, then decide whether tags.scm forks are needed before M0.
 
 ## Verdicts
 
-(filled in as spikes complete)
+Machine for all numbers: Apple M3, 8 cores, 16 GiB, macOS, 2026-09-02.
+
+### Spike 1: renderer fixture. PASS on this Mac, Linux and Firefox legs open
+
+deck.gl 9.3.11, OrthographicView, WebGL2, headless Chromium 151 via ANGLE Metal,
+1600x1000. 50k cities, 200k symbols, 20k bundled edges.
+
+| Zoom | Median frame | p95 | fps |
+|---|---|---|---|
+| continent (50k cities in view) | 8.3 ms | 9.8 ms | 120 (vsync) |
+| country (16.9k) | 8.3 ms | 9.9 ms | 120 |
+| city (969 cities, 159 labels) | 8.3 ms | 10.0 ms | 120 |
+| street (buildings on) | 8.3 ms | 10.1 ms | 120 |
+
+Stress: dpr 3 (14.4 Mpixel) 68-81 fps. 200k files / 800k symbols / 80k edges
+120 fps except street 91 fps. Traffic demo at 50 touches/s: no change.
+
+Pain points to carry: CollisionFilterExtension hid all labels with a parked
+camera (its collision map only re-renders on viewport change, and first render
+happens before the font atlas exists). Worked around by nudging the camera for
+24 frames when the label set changes. Collision tests the anchor not the box,
+so use center baseline. FlyToInterpolator is geospatial only, non-geo needs
+LinearInterpolator and a hand-written van Wijk curve. No viewport culling inside
+a layer. Binary data object identity must stay stable across zoom or every step
+re-uploads ~10 MB. Code: apps/spike-renderer, screenshots and bench JSON there.
+
+### Spike 3: stable geography. PASS on stability, FAIL on compactness
+
+50 commits of a real 8.7k-file TypeScript monorepo (repo A, a private codebase used as local test data only), replay 6.9 s, median layout
+67 ms. 46 of 49 transitions bit-identical for every pre-existing node, 47 of 49
+with zero movement outside changed directories. Median instability 0.00 cells,
+p95-of-p95 4.95 cells, worst 71. Root extent 128x256 unchanged for all 50
+commits. Mean aspect 1.60, worst 3.00 (the cap). Deterministic across runs.
+Greedy insertion is sufficient, Local Moves not needed.
+
+Whitespace 73.5% (22 slack, 14 borders, 37 growth reserve) against a 25-35%
+target. Structural: rigid nested rectangles pay area at every one of 11 levels.
+Dropping growth reserve to zero costs 40x worst-case movement and still leaves
+75% whitespace as fragmentation.
+
+Design findings, now requirements: file footprint must be decoupled from byte
+size (largest blobs were 16 MB fonts, uniform 1x1 cells pack a 686-file flat
+directory losslessly). When one child dominates its parent, growth must evict
+the smaller siblings, never relocate the large one (first version moved 4,523
+nodes on a 30-file commit). Borders only at the top two levels, slack only at
+leaves and only for regions with more than ~8 children (851 of 1,446 regions
+hold 4 cells or fewer). All instability came from new directories, never from
+edits. Coupling order vs size order gave identical stability, freezing at first
+sight makes order fragility moot. Next: size growth reserve from git history
+per directory instead of uniformly. Code and snapshots: packages/layout.
+
+### Spike 4: hooks. PASS on what runs headless, approve-in-place pending
+
+Real http hooks fired from headless claude -p runs: PreToolUse, PostToolUse
+(with tool_input, tool_response, duration_ms), PostToolBatch, Stop, all with
+session_id, transcript_path, cwd, permission_mode. Fence deny worked live (agent
+reported blocked, file untouched). Batch gate stopped the loop after 2 turns.
+SessionStart and PermissionRequest never fire headless, so approve-in-place
+needs the interactive run in apps/spike-hooks/RUNBOOK.md. Selftest: 44
+assertions pass.
+
+Doc mismatches: "async": true is command-hooks only, http hooks are always
+synchronous and add latency to the loop. PostToolBatch.tool_calls carry
+tool_response, not the documented success/output. Stop has no stop_reason.
+Edit tool_response.structuredPatch gives the per-edit diff without reading the
+transcript.
+
+### Spike 5: indexer. PASS with margin, TypeScript tags query must be forked
+
+Rust, tree-sitter 0.27.0, tree-sitter-tags 0.27.0, tree-sitter-python 0.25.0,
+tree-sitter-typescript 0.23.2, ignore 0.4.33, notify 8.2.0, blake3 1.8.7,
+rusqlite 0.40.2. rustup update to 1.98 was required (MSRV 1.90).
+
+| Repo | Files | Symbols def/ref | Imports | Unresolved | Cold | Warm | 1 file | Peak RSS |
+|---|---|---|---|---|---|---|---|---|
+| microsoft/TypeScript | 65,938 | 46.6k / 72.2k | 18.5k | 97% | 11.6 s | 9.3 s | 9.1 s | 166 MiB |
+| repo B, Python, committed venv included | 52,071 | 516k / 2.2M | 202k | 83% | 30.8 s | 12.4 s | 11.0 s | 479 MiB |
+| repo A, TypeScript monorepo | 8,605 | 2.0k / 20.3k | 35.1k | 71% | 2.9 s | 1.3 s | 1.3 s | 70 MiB |
+
+Watch mode single-file reparse 2-100 ms, a 30-append burst collapsed by the 1 s
+debounce into one 94 ms reparse.
+
+Stock tree-sitter-typescript tags.scm is unusable: 1,972 definitions in 7,263 TS
+files and zero call references (misses class_declaration, arrow-const
+functions, method_definition, enums, type aliases, calls). The forked query
+behind --fork-ts-tags fixes it at no cost. Python tags.scm is exact. Warm
+rescan is bound by per-file open+read (~0.14 ms/file), an (mtime, size)
+pre-filter is the next optimization. tsconfig baseUrl is the biggest resolution
+gap (~11k of repo A's 25k unresolved imports point at real files). Relative
+resolution is near-exact. Code: crates/wake-index.
+
+### Spike 2: shader-driven traffic. Not started
+
+Depends on spike 1's fixture. Next.

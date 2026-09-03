@@ -1,0 +1,21 @@
+{
+  "name": "@wake/layout",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Spike 3: stable geography layout for Wake, plus a commit-replay stability harness.",
+  "engines": {
+    "node": ">=23.6"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "replay": "node --experimental-strip-types --no-warnings=ExperimentalWarning src/replay.ts"
+  },
+  "devDependencies": {
+    "@types/node": "22.15.3",
+    "typescript": "5.9.2"
+  },
+  "optionalDependencies": {
+    "sharp": "^0.34.2"
+  }
+}

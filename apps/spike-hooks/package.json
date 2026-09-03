@@ -1,0 +1,19 @@
+{
+  "name": "wake-spike-hooks",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Wake spike 4: Claude Code http hook round-trip, fences, approve-in-place",
+  "type": "module",
+  "engines": {
+    "node": ">=23.6.0"
+  },
+  "scripts": {
+    "start": "node --experimental-strip-types src/server.ts",
+    "selftest": "node --experimental-strip-types src/selftest.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "26.4.1",
+    "typescript": "7.0.2"
+  }
+}

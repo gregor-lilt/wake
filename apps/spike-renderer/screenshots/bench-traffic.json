@@ -1,0 +1,107 @@
+{
+  "startedAt": "2026-09-03T13:13:57.507Z",
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.0.0 Safari/537.36",
+  "devicePixelRatio": 1,
+  "canvas": {
+    "width": 1600,
+    "height": 1000
+  },
+  "fixture": {
+    "isRealExport": 0,
+    "regions": 5,
+    "directories": 400,
+    "files": 50000,
+    "symbols": 200000,
+    "edges": 20000,
+    "trunkMotorways": 167,
+    "minorMotorways": 2851,
+    "localRoads": 16982,
+    "roadVertices": 248288,
+    "cityLabelCandidates": 24000,
+    "sessionEvents": 130,
+    "genMs": 20,
+    "layoutMs": 18,
+    "roadsMs": 11,
+    "worldSide": 151552,
+    "zoomBase": -6.98,
+    "cityAreaPctOfRegion": 27.8,
+    "rowWorld": 4.8,
+    "effectiveLines": 0,
+    "foldedFiles": 1632,
+    "stubs": 4979,
+    "districtCoveragePct": 35.3,
+    "zoomSchematic": -2.263,
+    "zoomReading": 0.907,
+    "zoomMax": 1.907
+  },
+  "phases": [
+    {
+      "name": "continent",
+      "zoom": -7.396,
+      "frames": 722,
+      "medianMs": 8.3,
+      "p95Ms": 9,
+      "meanMs": 8.32,
+      "fps": 120.2,
+      "citiesInView": 50000,
+      "labelsDrawn": 64,
+      "roadsInView": 0,
+      "buildingsDrawn": 0
+    },
+    {
+      "name": "country",
+      "zoom": -6.35,
+      "frames": 720,
+      "medianMs": 8.3,
+      "p95Ms": 8.7,
+      "meanMs": 8.33,
+      "fps": 120,
+      "citiesInView": 18152,
+      "labelsDrawn": 64,
+      "roadsInView": 0,
+      "buildingsDrawn": 0
+    },
+    {
+      "name": "city",
+      "zoom": -4.051,
+      "frames": 720,
+      "medianMs": 8.3,
+      "p95Ms": 8.9,
+      "meanMs": 8.33,
+      "fps": 120,
+      "citiesInView": 986,
+      "labelsDrawn": 6,
+      "roadsInView": 0,
+      "buildingsDrawn": 0
+    },
+    {
+      "name": "street",
+      "zoom": 0.059,
+      "frames": 720,
+      "medianMs": 8.3,
+      "p95Ms": 8.8,
+      "meanMs": 8.33,
+      "fps": 120,
+      "citiesInView": 13,
+      "labelsDrawn": 9,
+      "roadsInView": 0,
+      "buildingsDrawn": 183
+    }
+  ],
+  "deckMetrics": {
+    "fps": 119.99,
+    "framesRedrawn": 60,
+    "gpuTimePerFrame": 0,
+    "cpuTimePerFrame": 1.83,
+    "updateAttributesTime": 8.2,
+    "setPropsTime": 0.8
+  },
+  "gl": {
+    "webgl2": true,
+    "vendor": "Google Inc. (Apple)",
+    "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M3, Unspecified Version)"
+  },
+  "headless": true,
+  "query": "bench=1&theme=dark&nohud=1&traffic=1&nosplash=1",
+  "pageErrors": []
+}

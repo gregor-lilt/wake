@@ -465,7 +465,7 @@ Officially documented in code.claude.com/docs/en/vs-code:
 - Discovery file ~/.claude/ide/<port>.lock (mode 0600 in a 0700 dir).
   Verified live:
   ```json
-  {"pid":79079,"workspaceFolders":["/Users/gregor/repos/converse-res3786"],
+  {"pid":79079,"workspaceFolders":["/Users/gregor/repos/example"],
    "ideName":"Visual Studio Code","transport":"ws","runningInWindows":false,
    "authToken":"..."}
   ```

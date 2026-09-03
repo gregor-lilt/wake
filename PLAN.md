@@ -65,7 +65,7 @@ guided tour of the changes afterwards.
   across small changes to the code. A file added tomorrow must not move
   everything else. Layout is persisted with the project.
 - Semantic zoom, not scaled pictures. Each zoom level changes representation:
-  directories, then files, then symbols, then code. The user never sees an
+  directories, then files, then a file's structure, then code. The user never sees an
   illegible thumbnail of code.
 - Motion means something. Every animation maps to a real event. No decoration.
 - Show attention, not just edits. The reads are the "why" of the writes.
@@ -89,8 +89,8 @@ physics simulation. No force layouts, no hairballs.
 | Geography | Wake |
 |---|---|
 | Country, state, municipality | Directory, package, module (nested regions with borders) |
-| City, town, village | File, sized by amount of code |
-| Building | Symbol: class, function, method, top-level definition |
+| City, town, village | File. The unit developers navigate, and the unit of the map |
+| Buildings, streets | The structure inside a file: classes, functions, blocks. Visible only when zoomed into that file, never as separate map objects |
 | Local road | Dependency between files inside one region |
 | Motorway | Heavy, bundled dependency between regions, thickness by weight |
 | Airway | Long-distance cross-cutting dependency, drawn as an arc at low zoom |
@@ -111,7 +111,10 @@ the user already has of the repository.
   around them. A region grows in discrete steps only when its slack is used
   up, and growth is announced rather than hidden. Most insertions move
   nothing.
-- Buildings inside a city follow source order. It is the ordering the user
+- Files are the atomic unit of the map. Developers navigate files, tools
+  address files, diffs are per file. Symbols are not placed on the map, they
+  are what a file looks like from close up.
+- Inside a city, code follows source order. It is the ordering the user
   already knows and it needs no algorithm.
 - Whitespace is a feature. Cities are not packed edge to edge. The terrain
   between them gives the road network room and makes the map read as a map.
@@ -129,8 +132,9 @@ and back, so the user always returns to a place they know.
 Geography has one notion of distance. Code has several relationships. One of
 them is the road network, the others are overlay layers.
 
-- Roads are dependencies: imports between files at region zoom, calls between
-  symbols at street zoom.
+- Roads are dependencies between files: imports, weighted by how many symbols
+  cross them. At street zoom the individual references inside a file are shown
+  as the file's own detail, not as roads.
 - Roads are routed, not drawn straight. Between regions they are bundled
   along the region hierarchy, so a hundred dependencies from one package to
   another become one motorway. Inside a region they are routed around cities.
@@ -148,9 +152,14 @@ Zoom is semantic. Each level changes what is drawn, not how large it is drawn.
   and airways between them, region names only.
 - Country: sub-regions and the larger cities, motorway network, city names for
   the most important cities.
-- City: every file as a city with its name, local roads, buildings visible as
-  blocks colored by kind.
-- Street: the source of one building, with the current diff inline.
+- City: every file as a city with its name and local roads. A city large
+  enough on screen shows its schematic: the file's structure as colored token
+  bars in source order, the way an editor minimap shows a file from afar.
+  Classes and functions read as blocks.
+- Street: the real source of one file, syntax highlighted, with the current
+  diff inline. Changed lines are marked, removed code blends out, new code
+  blends in. The transition from schematic to source is a crossfade at the
+  same position, so the user never loses the place.
 
 Labels are ranked once by structural importance (region above city above
 building, then by fan-in and size) and appear at the zoom where they fit, like

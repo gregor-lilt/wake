@@ -1,0 +1,286 @@
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
+html, body, #app { margin: 0; height: 100%; width: 100%; overflow: hidden; }
+body {
+  background: var(--bg, #111418);
+  color: var(--fg, #e6eaee);
+  font: 12px/1.45 ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+#map { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+#hud, #controls {
+  position: absolute;
+  background: var(--panel, rgba(22,26,31,0.86));
+  border: 1px solid var(--border, rgba(255,255,255,0.12));
+  border-radius: 8px;
+  padding: 10px 12px;
+  backdrop-filter: blur(6px);
+  z-index: 5;
+}
+#hud { top: 12px; left: 12px; min-width: 232px; }
+#controls { top: 12px; right: 12px; width: 208px; }
+
+#hud h1 { margin: 0 0 8px; font-size: 11px; letter-spacing: .09em; text-transform: uppercase; opacity: .6; font-weight: 600; }
+#hud table { border-collapse: collapse; width: 100%; }
+#hud td { padding: 1px 0; font-variant-numeric: tabular-nums; }
+#hud td:first-child { opacity: .62; padding-right: 12px; }
+#hud td:last-child { text-align: right; font-weight: 600; }
+#hud .fps { font-size: 22px; font-weight: 700; line-height: 1.1; }
+#hud pre { margin: 8px 0 0; max-height: 40vh; overflow: auto; font: 10px/1.4 ui-monospace, monospace; white-space: pre; }
+
+.row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+button {
+  font: inherit; font-size: 11px; cursor: pointer;
+  background: transparent; color: inherit;
+  border: 1px solid var(--border, rgba(255,255,255,0.18));
+  border-radius: 5px; padding: 4px 8px;
+}
+button:hover { border-color: var(--accent, #ffb050); color: var(--accent, #ffb050); }
+button.on { border-color: var(--accent, #ffb050); color: var(--accent, #ffb050); }
+label.chk { display: flex; align-items: center; gap: 6px; padding: 2px 0; cursor: pointer; }
+hr { border: 0; border-top: 1px solid var(--border, rgba(255,255,255,0.12)); margin: 8px 0; }
+.hint { opacity: .5; font-size: 10px; margin-top: 6px; }
+
+body.nohud #hud, body.nohud #controls { display: none; }
+
+#hud .event {
+  margin-top: 8px; padding: 5px 7px; border-radius: 5px;
+  background: rgba(127, 127, 127, 0.12);
+  font: 10px/1.35 ui-monospace, monospace;
+  word-break: break-all; min-height: 14px;
+}
+label.slider { display: block; font-size: 10px; opacity: .8; margin: 4px 0 2px; }
+label.slider span { font-weight: 600; opacity: 1; font-variant-numeric: tabular-nums; }
+label.slider input { width: 100%; margin: 2px 0 0; accent-color: var(--accent, #ffb050); }
+
+/* ------------------------------------ source tier: pooled DOM overlays */
+.wake-ov-root { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
+.wake-ov {
+  position: absolute;
+  overflow: hidden;
+  opacity: 0;
+  /* inert: wheel, drag and pinch must reach the deck.gl canvas underneath */
+  pointer-events: none;
+  /* no background of its own: the sheet underneath IS the code background */
+  background: none;
+  contain: paint;
+}
+.wake-ov pre {
+  margin: 0;
+  padding: 0;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  white-space: pre;
+  tab-size: 4;
+  color: var(--code-fg, #c9d1d9);
+}
+.wake-ov .r { display: block; overflow: hidden; white-space: pre; }
+/* the gutter: line numbers in the sheet's left margin, right aligned, dimmed
+   to ~35% contrast, the same monospace as the code (docs/design.md section 7) */
+.wake-ov .r > i.ln {
+  display: inline-block;
+  width: var(--gutter, 0px);
+  padding-right: var(--gutter-pad, 0px);
+  box-sizing: border-box;
+  text-align: right;
+  font-style: normal;
+  opacity: .35;
+  color: var(--code-fg, #c9d1d9);
+  user-select: none;
+}
+/* inline diff, the standard one */
+.wake-ov .r.add { background: var(--diff-add, rgba(46, 160, 67, 0.22)); box-shadow: inset 2px 0 0 var(--diff-add-edge, #2ea043); }
+.wake-ov .r.mod { background: var(--diff-mod, rgba(210, 153, 34, 0.22)); box-shadow: inset 2px 0 0 var(--diff-mod-edge, #d29922); }
+.wake-ov .r.del { background: var(--diff-del, rgba(248, 81, 73, 0.20)); box-shadow: inset 2px 0 0 var(--diff-del-edge, #f85149); }
+/* the replay has not reached this file's first edit: no diff marks at all */
+.wake-ov .r.preimage { background: none; box-shadow: none; opacity: 1; color: inherit; }
+
+/* ------------------------------------------------- collapsible HUD panels */
+#hud, #controls { position: absolute; }
+.chev {
+  position: absolute; top: 6px; right: 6px;
+  width: 18px; height: 18px; padding: 0; line-height: 1;
+  font-size: 10px; border-radius: 4px; opacity: .55;
+}
+.chev:hover { opacity: 1; }
+.strip { display: none; }
+#hud.collapsed, #controls.collapsed { min-width: 0; padding: 5px 30px 5px 10px; }
+#hud.collapsed > *:not(.chev):not(.strip),
+#controls.collapsed > *:not(.chev):not(.strip) { display: none; }
+#hud.collapsed { width: auto; max-width: 46ch; }
+#controls.collapsed { width: auto; }
+#hud.collapsed .strip, #controls.collapsed .strip {
+  display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-size: 11px; line-height: 18px;
+}
+#hud.collapsed .strip b { font-size: 13px; font-variant-numeric: tabular-nums; }
+#hud.collapsed .strip span { opacity: .7; font-family: ui-monospace, monospace; font-size: 10px; }
+#controls.collapsed .strip { opacity: .6; letter-spacing: .06em; text-transform: uppercase; font-size: 10px; }
+
+/* fold marker: a dashed rule across the text box and a tracked caption */
+.wake-ov .r.fold {
+  display: flex; flex-direction: column; justify-content: flex-start;
+  overflow: hidden; padding-top: .35em;
+}
+.wake-ov .r.fold u { display: block; border-top: 1px dashed currentColor; opacity: .5; }
+.wake-ov .r.fold b {
+  display: block; font-weight: 600; font-size: .78em; line-height: 1.6;
+  opacity: .72; white-space: pre;
+}
+
+/* ------------------------------------------------- wayfinding (section 7) */
+.wf-root { position: absolute; inset: 0; z-index: 4; pointer-events: none; }
+/* Region names paint above the sticky file headers: a district outranks a
+   file label (docs/design.md section 7), and the header's paper strip would
+   otherwise cover the name of the district the file is in. */
+.wf-regions, .wf-stickies { position: absolute; inset: 0; }
+.wf-stickies { z-index: 1; }
+.wf-regions { z-index: 2; }
+
+/* sticky region names: the district style, anchored to the intersection of the
+   region with the viewport rather than to the region's own corner */
+.wf-region {
+  position: absolute;
+  white-space: nowrap;
+  font-weight: 600;
+  line-height: 1.25;
+  text-transform: uppercase;
+  letter-spacing: .28em;
+  color: var(--fg, #e6eaee);
+  text-shadow: 0 0 3px var(--bg, #111418), 0 0 3px var(--bg, #111418), 0 1px 2px var(--bg, #111418);
+}
+.wf-region .chev { display: none; }
+
+/* sticky file header: the file name, and the enclosing scope of the first
+   visible line, on a translucent strip of the paper colour inside the sheet */
+.wf-sticky {
+  position: absolute;
+  overflow: hidden;
+  border-bottom: 1px solid var(--border, rgba(255,255,255,0.12));
+  padding: 0 6px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+  opacity: .93;
+}
+.wf-sticky .n {
+  font-size: 11.5px; line-height: 15px; font-weight: 500;
+  white-space: nowrap; overflow: hidden;
+  color: var(--fg, #e6eaee);
+}
+.wf-sticky .s {
+  font-size: 10.5px; line-height: 15px;
+  white-space: nowrap; overflow: hidden;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  opacity: .6;
+  color: var(--code-fg, #c9d1d9);
+}
+
+/* the jump bar: one line at the top centre, district style, every crumb a
+   button that frames its level. It replaces the collapsed debug strip. */
+.wf-jump {
+  position: absolute;
+  top: 10px; left: 50%; transform: translateX(-50%);
+  max-width: 72vw;
+  display: flex; align-items: center; gap: 2px;
+  padding: 4px 10px;
+  border: 1px solid var(--border, rgba(255,255,255,0.12));
+  border-radius: 999px;
+  /* Opaque rather than a backdrop blur: a blurred layer over a 14 Mpixel
+     canvas costs real fill rate, and this one is always on screen. */
+  background: var(--jump, #171b21);
+  pointer-events: auto;
+  overflow: hidden;
+  /* above the sticky headers and the region names: it is the one permanent
+     line of chrome and nothing on the map may cover it */
+  z-index: 3;
+}
+.wf-jump .crumb {
+  border: 0; background: none; padding: 1px 3px; border-radius: 3px;
+  font-size: 10.5px; letter-spacing: .09em; text-transform: uppercase;
+  font-weight: 600; opacity: .72; white-space: nowrap; max-width: 22ch;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.wf-jump .crumb.file, .wf-jump .crumb.scope {
+  text-transform: none; letter-spacing: 0; font-weight: 500; font-size: 11px;
+}
+.wf-jump .crumb.line { text-transform: none; letter-spacing: 0; font-variant-numeric: tabular-nums; opacity: .55; }
+.wf-jump .crumb:hover { opacity: 1; color: var(--accent, #ffb050); }
+.wf-jump .sep { font-style: normal; opacity: .35; font-size: 10px; }
+
+/* off-screen agent marker: an arrow at the screen edge, the file name beside
+   it, in the file-label style at 60% contrast */
+.wf-edge {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex; align-items: center; gap: 5px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--panel, rgba(22,26,31,0.86));
+  border: 1px solid var(--border, rgba(255,255,255,0.12));
+  pointer-events: auto; cursor: pointer;
+  opacity: .6;
+  white-space: nowrap;
+  z-index: 4;
+}
+.wf-edge:hover { opacity: 1; }
+.wf-edge.flip { flex-direction: row-reverse; }
+.wf-edge .arrow {
+  display: block; width: 0; height: 0;
+  border: 5px solid transparent;
+  border-left-color: var(--accent, #ffb050);
+  border-right-width: 0;
+}
+.wf-edge .n { font-size: 11.5px; font-weight: 500; }
+
+/* The debug panel only exists under ?debug=1 now (docs/design.md section 10),
+   and the agent card owns the bottom-left corner, so the panel stays where it
+   is and the collapsed strip is gone with it. */
+#hud .strip { display: none !important; }
+
+/* ------------------------------------------- agent card (section 10) */
+/* The bottom-left corner, which the debug panel used to own. Same visual
+   language as the jump bar: opaque ground, hairline border, pill radius,
+   tracked small caps for the chip. */
+#agent {
+  position: absolute;
+  bottom: 12px; left: 12px;
+  width: 300px; max-width: 42vw;
+  padding: 8px 10px 7px;
+  border: 1px solid var(--border, rgba(255,255,255,0.12));
+  border-radius: 10px;
+  background: var(--jump, #171b21);
+  z-index: 5;
+}
+body.nohud #agent { display: none; }
+#agent .ac-now { display: flex; align-items: baseline; gap: 8px; }
+#agent .ac-now .t {
+  flex: 1; font-size: 12.5px; font-weight: 600; line-height: 1.35;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#agent .w {
+  font-style: normal; font-size: 9.5px; opacity: .38;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+#agent .ac-trail { margin: 3px 0 0; }
+#agent .ac-past { display: flex; align-items: baseline; gap: 8px; }
+#agent .ac-past .t {
+  flex: 1; font-size: 11px; line-height: 1.45;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#agent .ac-foot { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
+#agent .ac-chip {
+  font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; font-weight: 600;
+  padding: 2px 7px; border-radius: 999px;
+  border: 1px solid var(--border, rgba(255,255,255,0.12));
+  opacity: .6;
+}
+#agent .ac-chip.live { opacity: 1; color: var(--accent, #ffb050); border-color: var(--accent, #ffb050); }
+#agent .ac-chip.manual { opacity: .8; }
+#agent .ac-foot button { font-size: 10px; padding: 2px 8px; }
+#agent .ac-count {
+  margin-left: auto; font-size: 9.5px; opacity: .45;
+  font-variant-numeric: tabular-nums;
+}
+#agent .ac-bar {
+  margin-top: 7px; height: 2px; border-radius: 2px;
+  background: rgba(127,127,127,0.22); overflow: hidden;
+}
+#agent .ac-bar i { display: block; height: 100%; background: var(--accent, #ffb050); opacity: .7; }

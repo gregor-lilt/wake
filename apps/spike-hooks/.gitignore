@@ -1,0 +1,5 @@
+events.jsonl
+fences.json
+node_modules/
+.selftest/
+probe-events.jsonl

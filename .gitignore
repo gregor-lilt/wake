@@ -4,3 +4,7 @@ target/
 .wake/
 .DS_Store
 *.log
+# local test data derived from private repositories, never committed
+packages/layout/out/
+apps/spike-hooks/events.jsonl
+apps/spike-hooks/fences.json
