@@ -24,9 +24,12 @@
  *   e  with autopilot off and the camera far from the agent's last file, the
  *      edge marker points at it and clicking it brings the file on screen
  *   f  120 fps at all four bands with labels on
+ *   g  where a sheet's sticky header and a stack of sticky region names want
+ *      the same corner, the stack collapses to its deepest name and the
+ *      header moves below it, and nothing overlaps (the quiet pass)
  *
- * Screenshots go to screenshots/41-*.png .. 46-*.png, all gitignored because
- * they render real names, real paths and real source.
+ * Screenshots go to screenshots/41-*.png .. 46-*.png and 63-*.png, all
+ * gitignored because they render real names, real paths and real source.
  */
 import { mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -207,12 +210,28 @@ try {
   const abbrev = shot.files.filter((l) => l.text.endsWith('…'));
   ok(abbrev.every((l) => l.text.length >= 7),
     `d ${abbrev.length} captions abbreviated with an ellipsis, all keeping at least 6 characters`);
-  // Narrower tiles: the same names no longer fit at all.
+  // Narrower tiles: the same names no longer fit at all. A tile is 50 px per
+  // unit of rowPx (100 columns of 2.4 world units against 4.8 per row), so the
+  // six-character floor at 11.5 px lands at about rowPx 0.9 -- BELOW the
+  // schematic band, which starts at rowPx 1. The check used to demand the
+  // schematic band here, which the three-band ladder made unreachable when the
+  // review of the labels phase deleted the tile-only `blocks` band. The rule
+  // under test is fit, not band, so it is asserted at both ends of the floor
+  // AT THE TERRAIN BAND: too narrow, nothing; wide enough, captions.
   await goto(page, { rowPx: 0.7, file: midFile });
   const narrow = await page.evaluate('window.__wakeLabels()');
   const wNarrow = await wayfind(page);
-  ok(wNarrow.band === 'schematic' && narrow.files.length === 0,
-    `d at rowPx 0.7 (${wNarrow.band}, tiles 35 px) ${narrow.files.length} captions: too narrow for six characters`);
+  ok(wNarrow.band === 'terrain' && narrow.files.length === 0,
+    `d at rowPx 0.7 (${wNarrow.band}, tiles ${(0.7 * 50).toFixed(0)} px) ` +
+    `${narrow.files.length} captions: too narrow for six characters`);
+  await goto(page, { rowPx: 0.95, file: midFile });
+  const justFits = await page.evaluate('window.__wakeLabels()');
+  const wFits = await wayfind(page);
+  const wideEnough = justFits.files.filter((l) => l.text.length * l.size * 0.56 > l.rect.w + 1).length;
+  ok(wFits.band === 'terrain' && justFits.files.length > 0 && wideEnough === 0,
+    `d at rowPx 0.95 (${wFits.band}, tiles ${(0.95 * 50).toFixed(0)} px) ` +
+    `${justFits.files.length} captions, ${wideEnough} wider than their tile: ` +
+    `visibility is by fit, not by band`);
 
   // ---- c: the jump bar at the terrain band -------------------------------
   await goto(page, { rowPx: 0.3, file: midFile });
@@ -333,16 +352,25 @@ try {
   });
   ok(Math.abs(bar.x + bar.w / 2 - bar.cw / 2) < 2 && bar.y < 30,
     `c the bar is at the top centre (${bar.x.toFixed(0)}+${bar.w.toFixed(0)} of ${bar.cw})`);
-  const strip = await page.evaluate(() => {
-    const hud = document.getElementById('hud');
-    hud.classList.add('collapsed');
-    const r = hud.getBoundingClientRect();
-    const out = { y: r.top, x: r.left, h: window.innerHeight };
-    hud.classList.remove('collapsed');
-    return out;
+  // The bottom-left corner is the agent card's, not a collapsed debug strip's:
+  // the review of the labels phase replaced the panel with the card and the
+  // strip is gone entirely (docs/design.md section 10). This check used to
+  // assert the strip, which is why it failed after phase 6 shipped.
+  const corner = await page.evaluate(() => {
+    const card = document.getElementById('agent');
+    const r = card.getBoundingClientRect();
+    return {
+      x: r.left, y: r.top, w: r.width, h: window.innerHeight,
+      chrome: window.__wakeChrome()
+    };
   });
-  ok(strip.y > strip.h / 2 && strip.x < 40,
-    `c the collapsed debug strip is in the bottom-left corner (${strip.x.toFixed(0)}, ${strip.y.toFixed(0)} of ${strip.h})`);
+  ok(corner.chrome.card && corner.y > corner.h / 2 && corner.x < 40 && corner.chrome.strips === 0,
+    `c the agent card is in the bottom-left corner and no debug strip is left ` +
+    `(${corner.x.toFixed(0)}, ${corner.y.toFixed(0)} of ${corner.h}, ` +
+    `${corner.chrome.strips} strips)`);
+  ok(corner.chrome.followButton && corner.chrome.action.length > 0,
+    `c the card names the action and carries the follow button ` +
+    `("${corner.chrome.action.slice(0, 22)}")`);
   await review(page, '43-jump-bar.png', {
     x: Math.max(0, bar.x - 12), y: Math.max(0, bar.y - 8),
     width: Math.min(view.w, bar.w + 24), height: bar.h + 16
@@ -379,6 +407,73 @@ try {
   const after = await wayfind(page);
   ok(clicked && after.rowPx < 3,
     `c clicking the region crumb frames the region (rowPx ${after.rowPx.toFixed(2)}, zoom was ${before.toFixed(2)})`);
+
+  // ---- g: corner clutter, the quiet pass ---------------------------------
+  // A stacked set of sticky region names and a sheet's sticky file header can
+  // want the same top-left corner in the reading band. The stack yields:
+  // one line with the DEEPEST name (the jump bar carries the rest) and the
+  // header moves down below it. Nothing overlaps.
+  //
+  // The pose is searched for rather than written down: aim at the middle of
+  // the longest files of the most deeply nested districts until a header and
+  // a region label meet at one corner.
+  const nested = geo.dirs
+    .filter((d) => d.level >= 4 && d.files >= 2)
+    .sort((b, c) => c.level - b.level || c.files - b.files);
+  let shared = null;
+  for (const d of nested) {
+    if (shared) break;
+    const inD = [];
+    for (let f = 0; f < files.count; f++) if (files.fileDirs[f] === d.id) inD.push(f);
+    inD.sort((x, y) => files.lines[y] - files.lines[x]);
+    for (const f of inD.slice(0, 3)) {
+      const line = Math.max(40, Math.min(340, Math.floor(files.lines[f] / 2)));
+      await goto(page, { rowPx: 10, file: f, line }, 1300);
+      const m = await wayfind(page);
+      if (m.cornerYields.length > 0) { shared = { file: f, dir: d.id, w: m }; break; }
+    }
+  }
+  ok(shared !== null, `g found a reading-band pose where a header and a region stack share a corner`);
+  if (shared) {
+    const m = shared.w;
+    const y = m.cornerYields[0];
+    const kept = m.regions.filter((r) => r.dir === y.dir);
+    ok(y.dropped.length > 0 && y.dropped.every((d) => d < y.depth),
+      `g the stack collapsed to its deepest name (depth ${y.depth}, dropped ` +
+      `${y.dropped.join('/')})`);
+    ok(kept.length === 1 && kept[0].stack === 0 && kept[0].collapsed,
+      `g one line is left at that corner ("${kept[0]?.text}", stack ${kept[0]?.stack})`);
+    // The jump bar still spells out the chain the collapse dropped. The bar
+    // describes the focused file, or else the viewport centre, and the header
+    // that yielded can belong to a neighbouring sheet, so focus that file for
+    // the read and release it again.
+    await page.evaluate((f) => window.__wakeFocus(f), y.file);
+    await sleep(400);
+    const focused = await wayfind(page);
+    await page.evaluate(() => window.__wakeFocus(-1));
+    const trail = focused.crumbs.filter((c) => c.kind === 'region' || c.kind === 'district');
+    const fileCrumb = focused.crumbs.find((c) => c.kind === 'file');
+    ok(fileCrumb !== undefined && fileCrumb.file === y.file && trail.length > y.dropped.length,
+      `g the jump bar still carries the implied chain (${trail.length} district crumbs ` +
+      `for ${y.dropped.length} dropped names, bar on the yielding file: ${fileCrumb?.file === y.file})`);
+    const header = m.stickies.find((l) => l.file === y.file);
+    ok(header !== undefined && Math.abs(header.y - y.regionBottom) < 0.5 && header.y > 0,
+      `g the sheet header moved down below it (y ${header?.y.toFixed(1)} vs region bottom ` +
+      `${y.regionBottom.toFixed(1)})`);
+    // Nothing overlaps: every region label box against every header strip.
+    const hits = [];
+    for (const l of m.stickies) {
+      const box = { x: l.sheet.x, y: l.y, w: l.sheet.w, h: (l.scope ? 2 : 1) * 15 };
+      for (const r of m.regions) {
+        if (box.x < r.box.x + r.box.w && box.x + box.w > r.box.x &&
+            box.y < r.box.y + r.box.h && box.y + box.h > r.box.y) hits.push([r.text, l.file]);
+      }
+    }
+    ok(hits.length === 0,
+      `g ${m.regions.length} region labels and ${m.stickies.length} sheet headers, ` +
+      `${hits.length} overlapping pairs`);
+    await review(page, '63-corner-rule-reading.png');
+  }
 
   // ---- f: fps at all four bands, labels on -------------------------------
   const bands = [[0.3, 'terrain'], [1.5, 'schematic'], [5, 'schematic'], [9, 'reading']];

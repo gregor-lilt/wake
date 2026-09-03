@@ -13,6 +13,7 @@ import { routePath } from './edges';
 import type { Session, SessionEvent, EventKind } from './session';
 import { heatOf } from './session';
 import type { Pose } from './camera';
+import { reducedMotion } from './motion';
 
 export interface Touch { file: number; at: number; kind: EventKind; heat: number }
 
@@ -35,6 +36,8 @@ const FOLLOW_N = 3; // camera target is the centroid of the last N touches
 const VOLUME_FADE = 20_000;
 const MARKER_MS = 1400;
 const PULSE_MS = 900;
+/** Radius the arrival ring is drawn at when it may not expand. */
+const PULSE_STATIC_R = 19;
 const FIT_MARGIN = 0.8;
 const MAX_HOT = 400;
 
@@ -42,6 +45,13 @@ export class Autopilot {
   paused = false;
   cursor = 0;
   loops = 0;
+  /**
+   * Replay the session again once it runs out. On by default, because the
+   * demo is watched for minutes and a session is a few tens of events;
+   * `?loop=0` lets it end, which is the idle state the agent card reports
+   * (docs/design.md section 10).
+   */
+  loop = true;
   lastEvent: SessionEvent | null = null;
   touches: Touch[] = [];
   trips = new Map<string, HotTrip>();
@@ -64,6 +74,45 @@ export class Autopilot {
   }
 
   get eventCount(): number { return this.session.events.length; }
+
+  /** The replay has run out of events and will not start over. */
+  get ended(): boolean {
+    return !this.loop && this.cursor >= this.session.events.length;
+  }
+
+  /** Something the follow camera would aim at: a touch inside the glow window. */
+  hasTarget(now: number): boolean {
+    for (const t of this.touches) if (now - t.at <= TOUCH_WINDOW) return true;
+    return false;
+  }
+
+  /**
+   * Ended, and with nothing left on the map: no touch the camera would
+   * follow and no trip still carrying link volume. Everything has faded out
+   * on its own clock by then, so the map holds no glow at all and the card
+   * says so. The leftovers are dropped here, at zero, so nothing lingers.
+   */
+  idle(now: number): boolean {
+    if (!this.ended) return false;
+    if (this.hasTarget(now)) return false;
+    for (const tr of this.trips.values()) if (Autopilot.heat(tr, now) > 0) return false;
+    if (this.touches.length > 0) this.touches.length = 0;
+    if (this.trips.size > 0) this.trips.clear();
+    return true;
+  }
+
+  /**
+   * Test hook: end the replay here and now, with every fade already expired.
+   * Only the precondition, not the state under test: the card text and the
+   * glow are still computed by the normal path.
+   */
+  endNow(): void {
+    this.loop = false;
+    this.cursor = this.session.events.length;
+    this.touches.length = 0;
+    this.trips.clear();
+    this.endedAt = -1;
+  }
   get mode(): 'timestamp' | 'cadence' { return this.session.mode; }
   get label(): string { return this.session.label; }
 
@@ -143,9 +192,10 @@ export class Autopilot {
     const events = this.session.events;
     if (this.session.mode === 'cadence') {
       if (this.cursor >= events.length) {
-        // Hold on the last frame for a beat, then start over.
+        // Hold on the last frame for a beat, then start over. With looping off
+        // the session simply ends and the map goes quiet.
         if (this.endedAt < 0) this.endedAt = now;
-        else if (now - this.endedAt > 2500) {
+        else if (this.loop && now - this.endedAt > 2500) {
           this.loops++;
           this.seekTo(0, now);
         }
@@ -160,7 +210,7 @@ export class Autopilot {
       return;
     }
     let t = this.clock(now);
-    if (t >= this.session.duration + 1500) {
+    if (t >= this.session.duration + 1500 && this.loop) {
       // Restart, keeping the map state so volumes decay naturally.
       this.startedAt = now;
       this.pausedFor = 0;
@@ -307,9 +357,13 @@ export class Autopilot {
       const age = now - (tr.startedAt + MARKER_MS * 0.85);
       if (age < 0 || age > PULSE_MS) continue;
       const p = age / PULSE_MS;
+      // The arrival ring is decoration over a mark the touch glow already
+      // carries, so under prefers-reduced-motion it does not expand: one
+      // radius, and it leaves on a fade (src/motion.ts). The trip marker
+      // itself keeps moving, because the movement IS the information.
       out.push({
         position: [this.layout.cityCentroid[tr.to * 2], this.layout.cityCentroid[tr.to * 2 + 1]],
-        radius: 6 + 26 * p,
+        radius: reducedMotion() ? PULSE_STATIC_R : 6 + 26 * p,
         alpha: 1 - p
       });
     }

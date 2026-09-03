@@ -11,7 +11,13 @@
  * Any user gesture goes to MANUAL immediately and resets the idle timer. After
  * `wait` seconds of no input the camera glides back over `time` seconds
  * (RECENTERING) and then resumes FOLLOW.
+ *
+ * Under `prefers-reduced-motion` the spring stays (a hard cut per agent event
+ * would be worse than a glide) but its time constant drops to
+ * `REDUCED_SMOOTH`, and the recentering glide is over in `REDUCED_RECENTER`.
+ * See src/motion.ts.
  */
+import { dampTime, reducedMotion, REDUCED_RECENTER } from './motion';
 
 export type CamState = 'follow' | 'manual' | 'recentering';
 
@@ -99,7 +105,8 @@ export class AutopilotCamera {
     }
 
     if (this.state === 'recentering') {
-      const p = Math.min(1, (now - this.recenterStart) / (this.params.time * 1000));
+      const secs = reducedMotion() ? Math.min(this.params.time, REDUCED_RECENTER) : this.params.time;
+      const p = Math.min(1, (now - this.recenterStart) / (secs * 1000));
       const e = easeInOut(p);
       const pose = {
         x: this.recenterFrom.x + (target.x - this.recenterFrom.x) * e,
@@ -110,9 +117,10 @@ export class AutopilotCamera {
       return pose;
     }
 
-    const [x, vx] = smoothDamp(current.x, target.x, this.vx, this.params.followSmooth, dt);
-    const [y, vy] = smoothDamp(current.y, target.y, this.vy, this.params.followSmooth, dt);
-    const [z, vz] = smoothDamp(current.zoom, target.zoom, this.vz, this.params.zoomSmooth, dt);
+    const follow = dampTime(this.params.followSmooth);
+    const [x, vx] = smoothDamp(current.x, target.x, this.vx, follow, dt);
+    const [y, vy] = smoothDamp(current.y, target.y, this.vy, follow, dt);
+    const [z, vz] = smoothDamp(current.zoom, target.zoom, this.vz, dampTime(this.params.zoomSmooth), dt);
     this.vx = vx;
     this.vy = vy;
     this.vz = vz;

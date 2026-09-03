@@ -18,7 +18,8 @@
  * underneath fade out. Leaving reverses it in 120 ms, unless the camera is
  * being dragged, where it goes at once. `will-change: filter` is set only
  * while a transition runs, so a page at rest never keeps a blurred raster.
- * Nothing is ever scaled with a transform.
+ * Nothing is ever scaled with a transform. Under `prefers-reduced-motion` the
+ * unblur is a plain 120 ms opacity fade with no blur at all (src/motion.ts).
  *
  * The overlay is inert to input (pointer-events: none) so wheel, drag and
  * pinch reach the deck.gl canvas underneath. That rules out hover, so removed
@@ -33,6 +34,7 @@
  */
 import type { CodeFile } from './code';
 import { FADE_COLS, FONT_RATIO, ADVANCE } from './schematic';
+import { reducedMotion } from './motion';
 
 /** unblur in */
 export const FADE_MS = 300;
@@ -225,7 +227,8 @@ export class OverlayPool {
 
   private leave(s: Slot, now: number): void {
     if (s.file < 0 || s.state === 'out') return;
-    s.outFrom = MIN_ALPHA + (1 - MIN_ALPHA) * s.eased;
+    const minAlpha = reducedMotion() ? 0 : MIN_ALPHA;
+    s.outFrom = minAlpha + (1 - minAlpha) * s.eased;
     s.state = 'out';
     s.stateAt = now;
   }
@@ -257,6 +260,17 @@ export class OverlayPool {
   coverage(file: number): number {
     const s = this.slots.find((x) => x.file === file);
     return s ? s.eased : 0;
+  }
+
+  /**
+   * What the slot's element is showing right now, for the verification hooks:
+   * the opacity carries the ink contrast, the filter is the blur (or none
+   * under prefers-reduced-motion).
+   */
+  styleOf(file: number): { opacity: number; filter: string; state: 'in' | 'out' } | null {
+    const s = this.slots.find((x) => x.file === file);
+    if (!s) return null;
+    return { opacity: parseFloat(s.wrap.style.opacity || '1'), filter: s.wrap.style.filter || 'none', state: s.state };
   }
 
   private slotFor(file: number, now: number, reenter: boolean): Slot {
@@ -398,20 +412,26 @@ export class OverlayPool {
     s.pre.style.setProperty('--gutter-pad', `${(lineH * ADVANCE).toFixed(2)}px`);
 
     // The unblur. Sharpening in over FADE_MS, blurring away over OUT_MS.
+    // Under prefers-reduced-motion it is a plain OUT_MS opacity fade from
+    // zero, with no blur at all (src/motion.ts).
+    const quiet = reducedMotion();
+    const inMs = quiet ? OUT_MS : FADE_MS;
+    const minAlpha = quiet ? 0 : MIN_ALPHA;
+    const blurPx = quiet ? 0 : BLUR_PX;
     let alpha: number;
     let blur: number;
     let moving: boolean;
     if (s.state === 'in') {
-      const e = easeOut(clamp01((now - s.stateAt) / FADE_MS));
+      const e = easeOut(clamp01((now - s.stateAt) / inMs));
       s.eased = e;
-      alpha = MIN_ALPHA + (1 - MIN_ALPHA) * e;
-      blur = BLUR_PX * (1 - e);
+      alpha = minAlpha + (1 - minAlpha) * e;
+      blur = blurPx * (1 - e);
       moving = e < 1;
     } else {
       const e = easeOut(clamp01((now - s.stateAt) / OUT_MS));
       s.eased = 1 - e;
       alpha = s.outFrom * (1 - e);
-      blur = BLUR_PX * e;
+      blur = blurPx * e;
       moving = true;
     }
     wrap.style.opacity = (alpha * req.ink).toFixed(3);

@@ -321,11 +321,18 @@ try {
     ok(fps >= 100,
       `f ${st.band}: ${fps.toFixed(0)} fps, rowPx ${st.rowPx.toFixed(2)}, ` +
       `${st.sheets} sheets, ${st.quads} quads -> ${shot}`);
-    // Coming up from the terrain, the two bands below the schematic draw no
-    // code at all: files are texture and flat tiles.
+    // Since the review of the labels phase the schematic is the tile texture
+    // from the terrain band up (docs/design.md section 2, decision log
+    // 2026-09-03), aggregated below one pixel per row. This check used to
+    // demand flat tiles with no sheet content below rowPx 3, which was the
+    // pre-review ladder with its separate blocks band; the quiet pass turned
+    // it around.
     if (px < 3) {
-      ok(st.tier === 'tile' && st.quads === 0 && st.sheets === 0,
-        `a the ${st.band} band draws no sheet content at all (tier ${st.tier})`);
+      const bars = await a.page.evaluate('window.__wakeBars()');
+      const agg = bars.rowPx < 1 ? bars.group > 1 : bars.group === 1;
+      ok(st.tier === 'schematic' && st.quads > 0 && st.sheets > 0 && agg,
+        `a the ${st.band} band draws the schematic as texture (tier ${st.tier}, ` +
+        `${st.sheets} sheets, group ${bars.group})`);
     }
   }
   // A folded tile in the reading band, for review.

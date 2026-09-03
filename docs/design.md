@@ -405,3 +405,12 @@ survives the edits above.
   sheets in view. Verified with 7 new checks. Two stale checks in the labels
   suite remain: one deliberately superseded by the agent card, one on
   terrain-band caption width to look at in the quiet pass.
+- 2026-09-03. Quiet pass shipped: corner rule (a region stack yields to a
+  sheet header beneath it), reduced motion via the system preference, idle
+  agent card after the replay ends, non-code contrast verified through the
+  aggregated texture, light theme parity, stale checks rewritten to the
+  current ladder. All six suites green (269 checks), 120 fps at every band on
+  the real export. Open finding: programmatic fly-to with a duration lands on
+  its first frame because deck.gl's view-state transition does not run.
+  Autopilot is unaffected (it uses damping), region buttons and jump-bar
+  crumbs jump instead of flying. To fix before the app.

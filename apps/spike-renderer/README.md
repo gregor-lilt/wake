@@ -22,7 +22,7 @@ npm run screenshots    # PNGs at four zoom levels + the two main bench runs
 WAKE_EXPORT=<name> npm run phase1   # design phase 1 checks: type and sheet
 WAKE_EXPORT=<name> npm run phase2   # design phase 2 checks: geography
 WAKE_EXPORT=<name> npm run phase5   # design phase 5 checks: labels and wayfinding
-WAKE_EXPORT=<name> npm run phase6   # phase 6 checks: aggregated schematic, roads, chrome
+WAKE_EXPORT=<name> npm run phase6   # phase 6 checks: aggregated schematic, roads, chrome, quiet pass
 WAKE_EXPORT=<name> npm run splash   # splash checks, both data sources
 HEADED=1 npm run bench # same bench in a visible window
 ```
@@ -431,9 +431,10 @@ or below the line's, repeated one indent step further out. Only classes,
 functions and methods are scopes; a module-level constant is a definition, not
 a place to be inside. Both schemas load.
 
-`WAKE_EXPORT=<name> npm run phase5` verifies all of it on a real export: 46
-checks, zero page errors, 120 fps at all four bands with labels on, screenshots
-`41-*.png` .. `46-*.png`, all gitignored.
+`WAKE_EXPORT=<name> npm run phase5` verifies all of it on a real export: 54
+checks (46 plus the quiet pass's corner rule, group g), zero page errors, 120
+fps at all four bands with labels on, screenshots `41-*.png` .. `46-*.png` and
+`63-*.png`, all gitignored.
 
 ## Roads
 
@@ -865,6 +866,52 @@ rate and is exactly what spike 2 has to move into a shader. The camera writes
 transitions, so the fly-to buttons deliberately count as user input and drop the
 camera into MANUAL.
 
+## Quiet pass
+
+The last pass over the design's "quiet by default" and "one motion language"
+principles (`docs/design.md` sections 1, 3, 7, 10). Nothing new to look at,
+which is the point:
+
+- **Corner clutter** (`src/wayfind.ts`, `resolveCorner`). In the reading band a
+  sheet's sticky file header and a stack of sticky region names could want the
+  same top-left corner, and the stack painted over the header. Now the stack
+  yields: it collapses to its deepest name (the one the file is actually in,
+  the jump bar spells out the rest) and the header moves down below it.
+  Nothing overlaps. `63-corner-rule-reading.png`.
+- **Non-code at half contrast.** Markdown, yaml, json, toml, lock and txt sheets
+  draw at 50% ink on every path: the aggregated terrain texture, the per-line
+  schematic and the source overlay. The aggregation path had kept it; the
+  check is new.
+- **Light theme parity.** The ramp darkens with depth instead of lightening,
+  paper is one step lighter than its desk instead of darker, labels keep their
+  contrast, the glow is retuned but still warm, and the agent card and the jump
+  bar share the theme's one opaque ground. `61-light-schematic.png`,
+  `62-dark-schematic.png`.
+- **Reduced motion** (`src/motion.ts`). Under `prefers-reduced-motion` camera
+  flights are instant, the follow spring keeps gliding but ten times tighter (a
+  hard cut per agent event would be worse), the unblur is a plain 120 ms
+  opacity fade with no blur, trip markers still move because the movement is
+  the information, and arrival pulses hold one radius and leave on a fade. The
+  media query is read live, so flipping the setting with the page open takes
+  effect at once.
+- **Idle state** (`src/agentcard.ts`). When the replay ends (`?loop=0`, the
+  demo loops by default) the card says `Session ended · N events`, the follow
+  button is disabled and nothing on the map glows. `64-idle-agent-card.png`.
+- **Two stale checks in the labels suite.** The collapsed debug strip check now
+  asserts the agent card in that corner. The terrain-band caption check was a
+  stale expectation, not a regression: it demanded the schematic band at rowPx
+  0.7, which the three-band ladder no longer has there since the `blocks` band
+  went; the rule under test is fit, not band, so it now asserts both ends of
+  the six-character floor at the terrain band.
+
+`WAKE_EXPORT=<name> npm run phase5` carries the corner rule (group g) and
+`npm run phase6` the other four (groups h to k). Both green on the real export,
+zero page errors, 120 fps at every band. One finding for the spike, not fixed
+here: a programmatic fly-to with a duration (`flyTo`, `flyToPose`) lands on its
+first frame on this build even without reduced motion, deck.gl's `viewState`
+transition does not run for it. The reduced-motion check reports it and
+asserts only the reduced page.
+
 ## Results
 
 Headless Chromium 151 on this Mac (Apple M3, macOS 26.6), WebGL2 through
@@ -953,7 +1000,10 @@ one number that got worse: a sheet is now the whole tile, so eight of them on a
 threshold, where a screen holds three to five pages, it is still 120.
 
 **Phase 2 verification** (`WAKE_EXPORT=<name> npm run phase2`): 66 checks, zero
-page errors, zero failures.
+page errors, zero failures. The quiet pass turned one check around: below rowPx
+3 it demanded flat tiles with no sheet content, which was the pre-review ladder;
+since the schematic became the tile texture from the terrain band up, it asserts
+schematic quads on every sheet there, aggregated below one pixel per row.
 
 | check | result |
 |---|---|
@@ -972,8 +1022,9 @@ The phase-1 suite (`npm run phase1`) is still green on the new lattice: 31
 checks, one font size per zoom, the clamp at rowPx 18 by fly-to and by wheel,
 0 quads outside their sheet over 31 sampled files, and the deep link.
 
-**Phase 6 verification** (`WAKE_EXPORT=<name> npm run phase6`): 43 checks, zero
-page errors, zero failures.
+**Phase 6 verification** (`WAKE_EXPORT=<name> npm run phase6`): 89 checks (43,
+plus 7 from the reading-band glow fix and 39 from the quiet pass, groups h to
+k), zero page errors, zero failures.
 
 | check | result |
 |---|---|

@@ -131,7 +131,9 @@ label.slider input { width: 100%; margin: 2px 0 0; accent-color: var(--accent, #
 .wf-root { position: absolute; inset: 0; z-index: 4; pointer-events: none; }
 /* Region names paint above the sticky file headers: a district outranks a
    file label (docs/design.md section 7), and the header's paper strip would
-   otherwise cover the name of the district the file is in. */
+   otherwise cover the name of the district the file is in. Since the quiet
+   pass the two are laid out so they never share pixels anyway: a header under
+   a region stack collapses it to one line and moves below it. */
 .wf-regions, .wf-stickies { position: absolute; inset: 0; }
 .wf-stickies { z-index: 1; }
 .wf-regions { z-index: 2; }

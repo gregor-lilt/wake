@@ -25,6 +25,7 @@ import type { RGB, Theme, ThemeName } from './theme';
 import { buildHud, buildControls } from './hud';
 import type { Toggles } from './hud';
 import { buildAgentCard, actionWords, TRAIL_ROWS } from './agentcard';
+import { flightMs, reducedMotion, onMotionChange, dampTime } from './motion';
 import type { AgentEventLine } from './agentcard';
 import { runBench, formatBench } from './bench';
 import type { BenchResult } from './bench';
@@ -39,12 +40,13 @@ import { AutopilotCamera } from './camera';
 import type { Pose } from './camera';
 import { warmTokenWorker } from './code';
 import { Splash } from './splash';
-import { CodeView, REST_MS, APPLY_MS, OVERLAY_KEEP } from './codeview';
+import { CodeView, REST_MS, APPLY_MS, OVERLAY_KEEP, FADE_MS, OUT_MS } from './codeview';
 import {
   ROW_PX_READ, ROW_PX_MAX, ROW_PX_SCHEMATIC, ROW_PX_GLOW_FADE,
   bandOf, rowPxOf, zoomForRowPx, tileGlowWeight, sheetGlowWeight
 } from './schematic';
 import type { DiffBand } from './schematic';
+import { isNonCode } from './schematic';
 import { ROW_WORLD, STUB_LINES } from './lattice';
 
 // ---------------------------------------------------------------- parameters
@@ -419,8 +421,11 @@ let vs: VS = { ...fitRect(layout.world), minZoom: worldFit - 1.5, maxZoom: codeV
 const interpolator = new LinearInterpolator({ transitionProps: ['target', 'zoom'] });
 const easeInOut = (t: number) => (t < 0.5 ? 2 * t * t : 1 - ((-2 * t + 2) ** 2) / 2);
 
-function flyTo(r: Rect, ms: number, userInitiated = false): void {
+function flyTo(r: Rect, flyMs: number, userInitiated = false): void {
   if (userInitiated) cam.noteUserInput(performance.now());
+  // prefers-reduced-motion: a flight over a screenful of map is exactly what
+  // the setting is about, so it becomes an instant jump (src/motion.ts).
+  const ms = flightMs(flyMs);
   const f = fitRect(r);
   vs = {
     target: f.target,
@@ -439,8 +444,9 @@ function flyTo(r: Rect, ms: number, userInitiated = false): void {
 }
 
 /** Fly to an explicit pose, used by the code view's own zoom step. */
-function flyToPose(pose: { x: number; y: number; zoom: number }, ms: number, userInitiated = false): void {
+function flyToPose(pose: { x: number; y: number; zoom: number }, flyMs: number, userInitiated = false): void {
   if (userInitiated) cam.noteUserInput(performance.now());
+  const ms = flightMs(flyMs);
   vs = {
     target: [pose.x, pose.y, 0],
     zoom: Math.max(vs.minZoom, Math.min(vs.maxZoom, pose.zoom)),
@@ -708,9 +714,9 @@ function clockOf(wallClock: string | undefined, t: number): string {
   return `t+${(t / 1000).toFixed(1)}s`;
 }
 
-function cardState(): {
+function cardState(now: number): {
   action: string; time: string; trail: AgentEventLine[];
-  camState: string; index: number; total: number;
+  camState: string; index: number; total: number; idle?: boolean;
 } {
   const total = session.events.length;
   if (!toggles.autopilot) {
@@ -724,17 +730,23 @@ function cardState(): {
     };
   }
   const at = Math.min(Math.max(autopilot.cursor - 1, 0), Math.max(total - 1, 0));
-  const now = cardEvent(at);
+  const ev = cardEvent(at);
   const trail: AgentEventLine[] = [];
   for (let k = at - 1; k >= 0 && trail.length < TRAIL_ROWS; k--) {
     const e = cardEvent(k);
     if (e) trail.push(e);
   }
   const head = autopilot.paused ? 'Paused \u00b7 ' : '';
+  // The replay has run out and the map has gone quiet: nothing is happening
+  // and nothing is left to follow (docs/design.md section 10).
+  const idle = autopilot.idle(now);
   return {
-    action: now ? head + now.text : 'Waiting for the agent',
-    time: now ? now.time : '',
+    action: idle
+      ? `Session ended \u00b7 ${total} event${total === 1 ? '' : 's'}`
+      : (ev ? head + ev.text : 'Waiting for the agent'),
+    time: idle ? '' : (ev ? ev.time : ''),
     trail,
+    idle,
     // The chip is a state, not a sentence: following / manual / recentering.
     camState: cam.state === 'follow' ? 'following' : cam.state,
     index: autopilot.cursor,
@@ -1808,7 +1820,7 @@ function loop(now: number): void {
   // agent card is DOM too and diffs its own writes, so it can run per frame
   // and never lag the replay.
   stepWayfinding();
-  agentCard.update(cardState());
+  agentCard.update(cardState(now));
 
   if (redrawPending) {
     redrawPending = false;
@@ -2013,6 +2025,9 @@ for (const type of ['pointerdown', 'touchstart'] as const) {
 for (const type of ['pointerup', 'pointercancel', 'touchend', 'touchcancel'] as const) {
   window.addEventListener(type, () => { pointerDown = false; }, { passive: true, capture: true });
 }
+// `?loop=0` lets the replay end instead of starting over, which is the idle
+// state the agent card reports (docs/design.md section 10).
+autopilot.loop = flag('loop', true);
 if (toggles.autopilot) {
   autopilot.start(performance.now(), num('seek', 0));
   // The splash reveals the map where it will start. With autopilot on that is
@@ -2033,6 +2048,9 @@ window.addEventListener('keydown', (e) => {
 });
 
 window.addEventListener('resize', () => { redrawPending = true; });
+// The setting can flip while the page is open: drop the spring's velocity so
+// the new time constant is not applied to momentum built under the old one.
+onMotionChange(() => { cam.engage(); redrawPending = true; });
 (window as unknown as { __wakeReady?: boolean }).__wakeReady = true;
 (window as unknown as { __deck?: unknown }).__deck = deck;
 /** Test hook for the screenshot script. */
@@ -2217,6 +2235,7 @@ function nearestOther(f: number): number {
   agentFile,
   regions: wayfind.regions,
   stickies: wayfind.stickies,
+  cornerYields: wayfind.cornerYields,
   crumbs: wayfind.crumbs,
   jumpText: (document.getElementById('wf-jump')?.textContent ?? '').trim(),
   edge: wayfind.edgeMarker,
@@ -2252,6 +2271,41 @@ function nearestOther(f: number): number {
     touch(f, performance.now(), strong, AGENT_FADE);
     redrawPending = true;
   };
+
+/**
+ * Reduced motion (src/motion.ts), for the check that emulates the media query:
+ * what the page thinks the setting is, what a flight costs, and whether the
+ * arrival pulse is still growing while the trip marker still moves.
+ */
+(window as unknown as { __wakeMotion?: () => unknown }).__wakeMotion = () => {
+  const now = performance.now();
+  const pulses = autopilot.pulses(now);
+  return {
+    reduced: reducedMotion(),
+    /** what the base 900 ms fly-to actually becomes */
+    flightMs: flightMs(900),
+    followSmooth: cam.params.followSmooth,
+    /** the spring's time constant as the camera applies it */
+    dampSeconds: dampTime(cam.params.followSmooth),
+    recenterSeconds: cam.params.time,
+    unblurMs: reducedMotion() ? OUT_MS : FADE_MS,
+    markers: markerDrawData.map((m) => ({ x: m.position[0], y: m.position[1], r: m.radius })),
+    pulses: pulses.map((q) => ({ r: q.radius, alpha: q.alpha }))
+  };
+};
+
+/** Test hook: end the replay here, with every fade already expired. */
+(window as unknown as { __wakeEndSession?: () => void }).__wakeEndSession = () => {
+  autopilot.endNow();
+  touched.clear();
+  tripPathData = [];
+  markerDrawData = [];
+  pulseDrawData = [];
+  hotRoadData = [];
+  sheetGlowLayerData = [];
+  sheetGlowNow.clear();
+  redrawPending = true;
+};
 
 /** Test hook: click a jump-bar crumb by index. */
 (window as unknown as { __wakeCrumb?: (i: number) => boolean }).__wakeCrumb = (i) => {
@@ -2475,6 +2529,8 @@ function nearestOther(f: number): number {
     trail: rows,
     chip: (card?.querySelector('#ac-chip')?.textContent ?? '').trim(),
     followButton: card?.querySelector('#ac-follow') !== null,
+    /** dead once the session has ended: nothing left to follow */
+    followDisabled: (card?.querySelector('#ac-follow') as HTMLButtonElement | null)?.disabled ?? null,
     progressPct: parseFloat((card?.querySelector('#ac-fill') as HTMLElement | null)?.style.width ?? '0'),
     counter: (card?.querySelector('#ac-count')?.textContent ?? '').trim(),
     /** the old panel: present only under ?debug=1 */
@@ -2490,19 +2546,50 @@ function nearestOther(f: number): number {
 (window as unknown as { __wakeFiles?: () => unknown }).__wakeFiles = () => {
   const folded: number[] = [];
   const stubs: number[] = [];
+  const nonCode: number[] = [];
   for (let f = 0; f < repo.fileCount; f++) {
     if (repo.fileFolded[f]) folded.push(f);
     if (repo.fileLines[f] < STUB_LINES) stubs.push(f);
+    if (isNonCode(repo.filePath?.[f] ?? null)) nonCode.push(f);
   }
   return {
     count: repo.fileCount,
     folded,
     stubs,
+    /** prose and config sheets, drawn at half contrast (section 3) */
+    nonCode,
     /** the district each file sits in, so a test can aim at a nested one */
     fileDirs: Array.from(repo.fileDir),
     lines: Array.from(repo.fileLines),
     folds: codeView.foldInfo(),
     lineAudit: codeView.lineAudit()
+  };
+};
+
+/**
+ * The theme as the page applies it, for the light/dark parity check: the
+ * tones the map draws with and the grounds the chrome actually computed.
+ */
+(window as unknown as { __wakeTheme?: () => unknown }).__wakeTheme = () => {
+  const bgOf = (sel: string) => {
+    const e = document.querySelector<HTMLElement>(sel);
+    return e ? getComputedStyle(e).backgroundColor : null;
+  };
+  const region = document.querySelector<HTMLElement>('.wf-region:not([hidden])');
+  return {
+    name: theme.name,
+    background: theme.background,
+    land: theme.landFill,
+    sheet: theme.sheetFill,
+    label: theme.label,
+    labelHalo: theme.labelHalo,
+    glow: theme.traffic,
+    jump: theme.css.jump,
+    cardBg: bgOf('#agent'),
+    jumpBg: bgOf('.wf-jump'),
+    regionLabelColor: region ? getComputedStyle(region).color : null,
+    // The district ramp itself is in __wakeGeo, per directory.
+    districtLevel1: theme.districtFill(0, 1)
   };
 };
 

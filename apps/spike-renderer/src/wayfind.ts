@@ -16,7 +16,10 @@
  *   sticky headers  in the reading band, a sheet whose top edge has left the
  *                   screen keeps its file name on a translucent strip of the
  *                   paper colour at the top of its visible part, with the
- *                   enclosing scope of the first visible line under it.
+ *                   enclosing scope of the first visible line under it. Where
+ *                   a header and a region stack want the same corner the stack
+ *                   collapses to its deepest name and the header moves below
+ *                   it, so the two never overlap (see resolveCorner).
  *   jump bar        one line at the top centre in the district style, naming
  *                   the point at the viewport centre (or the focused file, or
  *                   the autopilot target) from the region down to the line.
@@ -67,6 +70,14 @@ export interface RegionLabel {
   priority: number;
   /** stack index at this corner: 0 is the outermost region */
   stack: number;
+  /** the shared corner this label stacks at */
+  group: string;
+  /**
+   * The stack at this corner collapsed to this one line because a sheet's
+   * sticky header wanted the same corner: the shallower names are gone and
+   * the jump bar carries them.
+   */
+  collapsed: boolean;
   /** true when the anchor is not the region's own top-left corner */
   sticky: boolean;
   /** the label's box in screen pixels */
@@ -175,6 +186,15 @@ export class Wayfinding {
   stickies: StickyLabel[] = [];
   crumbs: Crumb[] = [];
   edgeMarker: { file: number; name: string; x: number; y: number; angle: number } | null = null;
+  /**
+   * What the corner rule did this frame: one entry per sheet header that a
+   * region stack yielded to, with the name that survived, the depths that were
+   * dropped and where the header ended up. For the verification hooks.
+   */
+  cornerYields: Array<{
+    file: number; dir: number; depth: number; dropped: number[];
+    headerY: number; regionBottom: number;
+  }> = [];
 
   constructor(
     parent: HTMLElement,
@@ -244,6 +264,8 @@ export class Wayfinding {
         size,
         priority: it.priority,
         stack: 0,
+        group: '',
+        collapsed: false,
         // The anchor is the region's own corner only when the corner is what
         // the viewport clipped to.
         sticky: Math.abs(sx - rx) > 0.5 || Math.abs(sy - ry) > 0.5,
@@ -267,6 +289,7 @@ export class Wayfinding {
     for (const l of out) {
       const key = `${Math.round(l.box.x / 8)}|${Math.round(l.box.y / 8)}`;
       const st = stacks.get(key);
+      l.group = key;
       if (st) {
         l.stack = st.n;
         l.box.y = st.y;
@@ -327,9 +350,101 @@ export class Wayfinding {
     return this.stickySlots[i];
   }
 
+
+  // ---------------------------------------------------------- corner clutter
+  /**
+   * A stacked set of sticky region names and a sheet's sticky file header can
+   * want the same top-left corner in the reading band, and the region stack
+   * used to simply paint over the header (correct by priority, cluttered in
+   * practice: the labels phase logged it as a deviation for this pass).
+   *
+   * The rule: when a sheet header is directly beneath the region stack, within
+   * the stack's own height, the STACK YIELDS. It collapses to a single line
+   * carrying only the DEEPEST region name, because that is the one the file is
+   * actually in and the jump bar already spells out the chain above it, and the
+   * header moves down to just below that line. Nothing overlaps, and neither
+   * piece of wayfinding is lost.
+   *
+   * Returns the region labels that survive; `stick` is moved in place.
+   */
+  private resolveCorner(regions: RegionLabel[], stick: StickyLabel[]): RegionLabel[] {
+    this.cornerYields = [];
+    if (regions.length === 0 || stick.length === 0) return regions;
+    const groups = new Map<string, RegionLabel[]>();
+    for (const r of regions) {
+      const list = groups.get(r.group);
+      if (list) list.push(r);
+      else groups.set(r.group, [r]);
+    }
+    const dropped = new Set<RegionLabel>();
+    for (const s of stick) {
+      const h = (s.scope ? 2 : 1) * STICKY_ROW;
+      for (const list of groups.values()) {
+        const live = list.filter((r) => !dropped.has(r));
+        if (live.length === 0) continue;
+        let x0 = Infinity;
+        let x1 = -Infinity;
+        let y0 = Infinity;
+        let y1 = -Infinity;
+        for (const r of live) {
+          x0 = Math.min(x0, r.box.x);
+          x1 = Math.max(x1, r.box.x + r.box.w);
+          y0 = Math.min(y0, r.box.y);
+          y1 = Math.max(y1, r.box.y + r.box.h);
+        }
+        // The header is beneath the stack when the two boxes meet at all: the
+        // strip spans the whole sheet, so this is the shared-corner test.
+        const meets = x0 < s.sheet.x + s.sheet.w && x1 > s.sheet.x && y0 < s.y + h && y1 > s.y;
+        if (!meets) continue;
+        let deepest = live[0];
+        for (const r of live) if (r.depth > deepest.depth) deepest = r;
+        for (const r of live) if (r !== deepest) dropped.add(r);
+        deepest.stack = 0;
+        deepest.collapsed = live.length > 1;
+        // The one line stays at the top of the stack, but never above its own
+        // border: the corners in a stack agree only to within the stack key.
+        deepest.box.y = Math.max(y0, deepest.clip.y + REGION_PAD);
+        const bottom = deepest.box.y + deepest.box.h + REGION_STACK_GAP;
+        s.y = Math.max(s.y, bottom);
+        this.cornerYields.push({
+          file: s.file,
+          dir: deepest.dir,
+          depth: deepest.depth,
+          dropped: live.filter((r) => r !== deepest).map((r) => r.depth),
+          headerY: s.y,
+          regionBottom: bottom
+        });
+      }
+    }
+    return regions.filter((r) => !dropped.has(r));
+  }
+
   // -------------------------------------------------------------- the update
   update(p: WayfindFrame): void {
-    this.regions = p.labels ? this.buildRegions(p) : [];
+    let regions = p.labels ? this.buildRegions(p) : [];
+
+    // ---- sticky file names and scope rows ---------------------------------
+    // Built before the region labels reach the DOM, because a header sharing
+    // a corner with a region stack collapses it (see resolveCorner).
+    const stick: StickyLabel[] = [];
+    if (p.labels) {
+      for (const s of p.sticky) {
+        // Only when the page's own top edge has left the screen: otherwise the
+        // caption above the tile is still visible and is the right place.
+        if (s.sheet.y >= 0) continue;
+        if (s.sheet.y + s.sheet.h < STICKY_ROW) continue;
+        const text = fitText(s.name, FILE_SIZE, s.sheet.w - 12, ADV_MIXED);
+        if (text === null) continue;
+        stick.push({ ...s, y: 0, text });
+        if (stick.length >= STICKY_POOL) break;
+      }
+    }
+    regions = this.resolveCorner(regions, stick);
+    // A header pushed down below a collapsed region name needs the room for it
+    // inside its own sheet, or the strip would hang off the bottom of the page.
+    this.stickies = stick.filter((l) => l.y + (l.scope ? 2 : 1) * STICKY_ROW <= l.sheet.y + l.sheet.h);
+
+    this.regions = regions;
     for (let i = 0; i < this.regions.length; i++) {
       const l = this.regions[i];
       const s = this.regionSlot(i);
@@ -354,23 +469,10 @@ export class Wayfinding {
       if (!s.last.hidden) { s.el.hidden = true; s.last.hidden = true; }
     }
 
-    // ---- sticky file names and scope rows ---------------------------------
-    const stick: StickyLabel[] = [];
-    if (p.labels) {
-      for (const s of p.sticky) {
-        // Only when the page's own top edge has left the screen: otherwise the
-        // caption above the tile is still visible and is the right place.
-        if (s.sheet.y >= 0) continue;
-        if (s.sheet.y + s.sheet.h < STICKY_ROW) continue;
-        const text = fitText(s.name, FILE_SIZE, s.sheet.w - 12, ADV_MIXED);
-        if (text === null) continue;
-        stick.push({ ...s, y: 0, text });
-        if (stick.length >= STICKY_POOL) break;
-      }
-    }
-    this.stickies = stick;
-    for (let i = 0; i < stick.length; i++) {
-      const l = stick[i];
+    // ---- the sticky headers reach the DOM ---------------------------------
+    const drawn = this.stickies;
+    for (let i = 0; i < drawn.length; i++) {
+      const l = drawn[i];
       const slot = this.stickySlot(i);
       const rows = l.scope ? 2 : 1;
       slot.el.hidden = false;
@@ -389,7 +491,7 @@ export class Wayfinding {
       slot.scope.hidden = !l.scope;
       if (slot.scope.textContent !== l.scope) slot.scope.textContent = l.scope;
     }
-    for (let i = stick.length; i < this.stickySlots.length; i++) {
+    for (let i = drawn.length; i < this.stickySlots.length; i++) {
       this.stickySlots[i].el.hidden = true;
     }
 

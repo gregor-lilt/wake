@@ -9,6 +9,10 @@
  *              follow button
  *   a bar      session progress, event index over total
  *
+ * When the replay has ended and the map has gone quiet, line 1 is
+ * "Session ended · N events" and the follow button is disabled: there is
+ * nothing left to follow.
+ *
  * Same visual language as the jump bar: opaque ground, a hairline border, the
  * pill radius, tracked small caps for the chip. Frame rate and the internal
  * counters are not here at all: they live behind `?debug=1`, which brings the
@@ -33,6 +37,11 @@ export interface AgentCardState {
   /** event index and total, for the progress bar */
   index: number;
   total: number;
+  /**
+   * The replay has ended and there is nothing left to follow. The card says
+   * so and the follow button is disabled: there is nothing to follow to.
+   */
+  idle?: boolean;
 }
 
 export interface AgentCardHandles {
@@ -112,6 +121,7 @@ export function buildAgentCard(
   const chip = el('ac-chip');
   const count = el('ac-count');
   const fill = el('ac-fill');
+  const follow = el('ac-follow') as HTMLButtonElement;
   const rows = Array.from({ length: TRAIL_ROWS }, (_, i) => {
     const row = el(`ac-p${i}`);
     return {
@@ -120,7 +130,7 @@ export function buildAgentCard(
       when: row.querySelector<HTMLElement>('.w')!
     };
   });
-  el('ac-follow').onclick = () => handlers.follow();
+  follow.onclick = () => handlers.follow();
 
   let key = '';
   return {
@@ -128,7 +138,7 @@ export function buildAgentCard(
       // The card is DOM in a per-frame loop, so every write is diffed: a
       // session at one event per 1.5 s would otherwise rewrite eight nodes
       // sixty times a second for nothing.
-      const next = `${s.action}|${s.time}|${s.camState}|${s.index}/${s.total}|` +
+      const next = `${s.action}|${s.time}|${s.camState}|${s.index}/${s.total}|${s.idle ? 'i' : ''}|` +
         s.trail.map((t) => `${t.text}@${t.time}`).join(';');
       if (next === key) return;
       key = next;
@@ -143,6 +153,8 @@ export function buildAgentCard(
         // Fading with age: the oldest line is the faintest.
         rows[i].row.style.opacity = String(0.62 - i * 0.16);
       }
+      // Nothing to follow to: the button is dead rather than misleading.
+      follow.disabled = s.idle === true;
       chip.textContent = s.camState;
       chip.classList.toggle('live', s.camState === 'following');
       chip.classList.toggle('manual', s.camState === 'manual');

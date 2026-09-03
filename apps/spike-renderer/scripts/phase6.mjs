@@ -27,8 +27,24 @@
  *      strip instead and fades on the slow duration; and a trip line stops at
  *      the sheet edge, so no segment and no marker lands on source
  *
- * Screenshots go to screenshots/51-*.png .. 56-*.png, all gitignored because
- * they render real names, real paths and real source.
+ * The quiet pass added four groups:
+ *
+ *   h  non-code sheets (markdown, yaml, json, toml, lock, txt) draw at half
+ *      contrast on every path: the aggregated terrain texture, the per-line
+ *      schematic and the source overlay
+ *   i  the light theme holds every rule of the dark one with the tone steps
+ *      inverted: the ramp darkens with depth, paper is lighter than its desk,
+ *      labels keep their contrast, the glow stays warm, and the agent card and
+ *      the jump bar share one opaque ground
+ *   j  prefers-reduced-motion: camera flights are instant, the unblur is a
+ *      plain 120 ms fade with no blur, trip markers still move, arrival pulses
+ *      hold one radius
+ *   k  after the replay ends the agent card says "Session ended · N events",
+ *      follow is disabled and no glow is alive on the map
+ *
+ * Screenshots go to screenshots/51-*.png .. 56-*.png and 61-*.png, 62-*.png,
+ * 64-*.png, all gitignored because they render real names, real paths and real
+ * source.
  */
 import { mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -507,20 +523,39 @@ try {
     ok(strip === undefined || strip.glow > 0,
       `g the sticky header strip carries the same glow ` +
       (strip ? `(${strip.glow.toFixed(2)})` : '(no strip up on this sheet)'));
-    // ... and fades on the slow duration.
-    const series = await hp.evaluate(async (f) => {
+    // ... and fades on the slow duration. The replay may carry the camera to
+    // the next event before the fade is over, which empties the reading-band
+    // glow list at once; that is not the fade, so such a run is retried on a
+    // fresh event, up to three times.
+    const sampleFade = (f) => hp.evaluate(async (file) => {
       const out = [];
       for (let i = 0; i < 20; i++) {
         const s2 = window.__wakeGlow();
-        const hit = s2.sheets.find((x) => x.file === f);
-        out.push(hit ? hit.alpha : 0);
+        const hit = s2.sheets.find((x) => x.file === file);
+        out.push({ a: hit ? hit.alpha : 0, rowPx: s2.rowPx });
         await new Promise((r2) => setTimeout(r2, 60));
       }
       return out;
-    }, lit.file);
-    ok(Math.max(...series) > 0.5 && Math.min(...series) < 0.03,
+    }, f);
+    let series = await sampleFade(lit.file);
+    let left = series.some((x) => x.rowPx < 9) && Math.max(...series.map((x) => x.a)) < 0.5;
+    for (let attempt = 0; left && attempt < 3; attempt++) {
+      const again = await hp.waitForFunction(() => {
+        const st2 = window.__wakeGlow();
+        if (st2.rowPx >= 9 && st2.sheets.some((x) => x.alpha > 0.8)) {
+          window.__wakeCatchGlow2 = st2.sheets.slice().sort((x, y) => y.alpha - x.alpha)[0].file;
+          return true;
+        }
+        return false;
+      }, null, { timeout: 120_000, polling: 40 }).then(() => true).catch(() => false);
+      if (!again) break;
+      series = await sampleFade(await hp.evaluate('window.__wakeCatchGlow2'));
+      left = series.some((x) => x.rowPx < 9) && Math.max(...series.map((x) => x.a)) < 0.5;
+    }
+    const alphas = series.map((x) => x.a);
+    ok(Math.max(...alphas) > 0.5 && Math.min(...alphas) < 0.03,
       `g and it fades on the slow duration (${st.glowMs} ms): ` +
-      `peak ${Math.max(...series).toFixed(2)} down to ${Math.min(...series).toFixed(2)}`);
+      `peak ${Math.max(...alphas).toFixed(2)} down to ${Math.min(...alphas).toFixed(2)}`);
     // The review shot, with the glow put back at its peak: a screenshot takes
     // longer than the fade does.
     await hp.evaluate((f) => window.__wakeTouch(f, true), lit.file);
@@ -587,6 +622,264 @@ try {
   }
   errors.push(...hh.errors);
   await hp.close();
+
+  // ======================================================== the quiet pass
+  {
+  const lum = (c) => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  const rgbOf = (s) => {
+    if (!s) return null;
+    if (s.startsWith('#')) return [1, 3, 5].map((i) => parseInt(s.slice(i, i + 2), 16));
+    const m = s.match(/rgba?\(([^)]+)\)/);
+    return m ? m[1].split(',').slice(0, 3).map((v) => parseFloat(v)) : null;
+  };
+  const sameRgb = (a, b) => a && b && a.every((v, i) => Math.abs(v - b[i]) <= 1);
+
+  // Targets: the non-code sheet with the most lines under the fold cap, and a
+  // code file of similar size, so both carry a texture worth measuring.
+  const nonCodeSet = new Set(files.nonCode);
+  const pick = (want) => {
+    let best = -1;
+    for (let f = 0; f < files.count; f++) {
+      if (nonCodeSet.has(f) !== want) continue;
+      const n = files.lines[f];
+      if (n < 30 || n > 380) continue;
+      if (best < 0 || n > files.lines[best]) best = f;
+    }
+    return best;
+  };
+  const proseFile = pick(true);
+  const codeFile = pick(false);
+  ok(proseFile >= 0 && codeFile >= 0,
+    `h the export has a non-code sheet (${files.nonCode.length} of ${files.count} files) and a code sheet to compare`);
+
+  const qq = await openMap(context, base);
+  const q = qq.page;
+  await sleep(800);
+  // ---- h: non-code sheets at half contrast on every path ------------------
+  const HALF = Math.round(236 * 0.5);
+  for (const [px, wantBand, wantAgg] of [[0.3, 'terrain', true], [1.5, 'schematic', false]]) {
+    await goto(q, { rowPx: px, file: proseFile });
+    await settleSheets(q);
+    const bars = await q.evaluate('window.__wakeBars()');
+    const prose = bars.perFile.filter((p) => p.nonCode && p.quads > 0);
+    const code = bars.perFile.filter((p) => !p.nonCode && p.quads > 0);
+    const proseMax = Math.max(0, ...prose.map((p) => p.maxAlpha));
+    const codeMax = Math.max(0, ...code.map((p) => p.maxAlpha));
+    ok(bars.band === wantBand && (bars.group > 1) === wantAgg,
+      `h at rowPx ${px} the ${bars.band} band draws ${wantAgg ? 'the aggregated' : 'the per-line'} texture (group ${bars.group})`);
+    ok(prose.length > 0 && proseMax <= HALF && prose.every((p) => p.maxAlpha <= HALF),
+      `h ${prose.length} non-code sheets peak at alpha ${proseMax} (half of 236 is ${HALF})`);
+    ok(code.length > 0 && codeMax >= 230,
+      `h ${code.length} code sheets keep full contrast (peak alpha ${codeMax})`);
+  }
+  // The source overlay: its opacity carries the ink.
+  const overlayInk = async (f) => {
+    await goto(q, { rowPx: 9, file: f }, 1200);
+    for (let i = 0; i < 40; i++) {
+      const ov = await q.evaluate('window.__wakeOverlays()');
+      const slot = ov.slots.find((s) => s.file === f);
+      if (slot && slot.style && slot.style.state === 'in' && slot.style.opacity > 0) {
+        await sleep(400);
+        const again = await q.evaluate('window.__wakeOverlays()');
+        return again.slots.find((s) => s.file === f);
+      }
+      await sleep(250);
+    }
+    return null;
+  };
+  const proseOv = await overlayInk(proseFile);
+  const codeOv = await overlayInk(codeFile);
+  ok(proseOv && proseOv.nonCode && Math.abs(proseOv.style.opacity - 0.5) < 0.03,
+    `h in the reading band the non-code overlay sits at opacity ${proseOv?.style.opacity}`);
+  ok(codeOv && !codeOv.nonCode && codeOv.style.opacity > 0.97,
+    `h and the code overlay at ${codeOv?.style.opacity}`);
+
+  // ---- i: light theme parity -------------------------------------------
+  const ll = await openMap(context, base.replace('theme=dark', 'theme=light'));
+  const l = ll.page;
+  await sleep(800);
+  const midFile = codeFile;
+  for (const [px, wantBand] of [[0.3, 'terrain'], [1.5, 'schematic'], [9, 'reading']]) {
+    await goto(l, { rowPx: px, file: midFile });
+    const st = await l.evaluate('window.__wakeBars()');
+    ok(st.band === wantBand, `i the light theme reaches the ${wantBand} band at rowPx ${px} (${st.band})`);
+  }
+  await goto(l, { rowPx: 1.5, file: midFile });
+  await goto(q, { rowPx: 1.5, file: midFile });
+  await settleSheets(l);
+  await settleSheets(q);
+  const [gl, gd, tl, td] = await Promise.all([
+    l.evaluate('window.__wakeGeo()'), q.evaluate('window.__wakeGeo()'),
+    l.evaluate('window.__wakeTheme()'), q.evaluate('window.__wakeTheme()')
+  ]);
+  ok(gl.theme === 'light' && gd.theme === 'dark', `i two pages, one per theme (${gl.theme}, ${gd.theme})`);
+  const chainOf = (geo) => {
+    const byId = new Map(geo.dirs.map((d) => [d.id, d]));
+    for (const d of geo.dirs) {
+      if (d.level !== 3) continue;
+      const p = byId.get(d.parent);
+      const g = p ? byId.get(p.parent) : null;
+      if (p && g && p.level === 2 && g.level === 1) return [g, p, d];
+    }
+    return null;
+  };
+  const cl = chainOf(gl);
+  const cd = chainOf(gd);
+  if (cl && cd) {
+    const ls = cl.map((d) => lum(d.fill));
+    const ds = cd.map((d) => lum(d.fill));
+    ok(ls[0] > ls[1] && ls[1] > ls[2] && ds[0] < ds[1] && ds[1] < ds[2],
+      `i the ramp inverts: light ${ls.map((v) => v.toFixed(0)).join(' > ')}, dark ${ds.map((v) => v.toFixed(0)).join(' < ')}`);
+    ok(lum(gl.land.fill) > ls[0] && lum(gd.land.fill) < ds[0],
+      `i the terrain is the far end of the ramp in both (light ${lum(gl.land.fill).toFixed(0)}, dark ${lum(gd.land.fill).toFixed(0)})`);
+    ok(cl.every((d) => lum(d.line) < lum(d.fill)) && cd.every((d) => lum(d.line) > lum(d.fill)),
+      `i borders are darker than their fill in light, lighter in dark`);
+  } else {
+    ok(false, 'i a three-level nesting chain exists in both themes');
+  }
+  ok(lum(tl.sheet) > lum(tl.districtLevel1) && lum(td.sheet) < lum(td.districtLevel1),
+    `i paper sits one step off the desk, in opposite directions (light ${lum(tl.sheet).toFixed(0)} vs ${lum(tl.districtLevel1).toFixed(0)}, ` +
+    `dark ${lum(td.sheet).toFixed(0)} vs ${lum(td.districtLevel1).toFixed(0)})`);
+  const contrast = (t) => Math.abs(lum(t.label) - lum(t.background));
+  ok(contrast(tl) > 150 && contrast(td) > 150,
+    `i label contrast against the ground: light ${contrast(tl).toFixed(0)}, dark ${contrast(td).toFixed(0)}`);
+  const warm = (c) => c[0] > c[1] && c[1] > c[2];
+  ok(warm(tl.glow) && warm(td.glow) && !sameRgb(tl.glow, td.glow),
+    `i the glow is warm in both and retuned for light (${tl.glow.join(',')} vs ${td.glow.join(',')})`);
+  const rl = rgbOf(tl.regionLabelColor);
+  const rd = rgbOf(td.regionLabelColor);
+  ok(rl && rd && lum(rl) < lum(tl.background) && lum(rd) > lum(td.background),
+    `i region labels are dark on light and light on dark (${tl.regionLabelColor}, ${td.regionLabelColor})`);
+  for (const [t, name] of [[tl, 'light'], [td, 'dark']]) {
+    const card = rgbOf(t.cardBg);
+    const jump = rgbOf(t.jumpBg);
+    ok(sameRgb(card, jump) && sameRgb(card, rgbOf(t.jump)),
+      `i ${name}: the agent card and the jump bar share the theme's opaque ground (${t.cardBg}, ${t.jumpBg})`);
+  }
+  await shot(l, '61-light-schematic.png', { chrome: true });
+  await shot(q, '62-dark-schematic.png', { chrome: true });
+  errors.push(...ll.errors);
+  await l.close();
+
+  // ---- j: prefers-reduced-motion ------------------------------------------
+  const rr = await openMap(context, `${base}&autopilot=1&seek=40000`);
+  const rp = rr.page;
+  await sleep(600);
+  const before = await rp.evaluate('window.__wakeMotion()');
+  await rp.emulateMedia({ reducedMotion: 'reduce' });
+  await sleep(300);
+  const mo = await rp.evaluate('window.__wakeMotion()');
+  ok(!before.reduced && mo.reduced, `j the page reads the media query live (${before.reduced} -> ${mo.reduced})`);
+  ok(mo.flightMs === 0 && before.flightMs === 900, `j a 900 ms flight becomes ${mo.flightMs} ms`);
+  ok(mo.dampSeconds <= 0.09 && mo.dampSeconds < before.dampSeconds,
+    `j the follow spring tightens from ${before.dampSeconds} s to ${mo.dampSeconds} s, never a hard cut`);
+  ok(mo.unblurMs === 120 && before.unblurMs === 300, `j the unblur becomes a ${mo.unblurMs} ms fade`);
+  // Trip markers still move, pulses hold one radius.
+  const gotMarker = await rp.waitForFunction(() => window.__wakeMotion().markers.length > 0, null, { timeout: 120_000, polling: 40 })
+    .then(() => true).catch(() => false);
+  ok(gotMarker, `j a trip marker is in flight`);
+  if (gotMarker) {
+    const m0 = await rp.evaluate('window.__wakeMotion().markers');
+    await sleep(120);
+    const m1 = await rp.evaluate('window.__wakeMotion().markers');
+    const moved = m0.length > 0 && m1.length > 0 && Math.hypot(m1[0].x - m0[0].x, m1[0].y - m0[0].y) > 1e-6;
+    ok(moved, `j the trip marker still moves under reduced motion (${m0.length} -> ${m1.length} markers)`);
+  }
+  const gotPulse = await rp.waitForFunction(() => window.__wakeMotion().pulses.length > 0, null, { timeout: 120_000, polling: 40 })
+    .then(() => true).catch(() => false);
+  ok(gotPulse, `j an arrival pulse is up`);
+  if (gotPulse) {
+    const radii = [];
+    for (let i = 0; i < 4; i++) {
+      const ps = await rp.evaluate('window.__wakeMotion().pulses');
+      radii.push(...ps.map((p) => p.r));
+      await sleep(90);
+    }
+    ok(radii.length > 0 && radii.every((v) => Math.abs(v - radii[0]) < 1e-6),
+      `j the pulse holds one radius (${radii.length} samples at r ${radii[0]?.toFixed(0)})`);
+  }
+
+  // ---- k: idle after the replay ends -----------------------------------------
+  await rp.evaluate(() => window.__wakeEndSession());
+  await sleep(500);
+  const idle = await rp.evaluate('window.__wakeChrome()');
+  const glow = await rp.evaluate('window.__wakeGlow()');
+  const total = (idle.counter.split('/').pop() ?? '').trim();
+  ok(/^Session ended · \d+ events?$/.test(idle.action) && idle.time === '' && idle.action.includes(` ${total} `),
+    `k the card says "${idle.action}" (counter ${idle.counter})`);
+  ok(idle.followDisabled === true, `k the follow button is disabled`);
+  const alive = glow.tiles.filter((t) => t.alpha > 0).length + glow.sheets.length + glow.trips.length +
+    glow.markers.length + glow.pulses + glow.stickies.filter((s) => s.glow > 0).length;
+  ok(alive === 0, `k no glow is alive: ${glow.tiles.length} tile quads at alpha 0, ${glow.sheets.length} sheet rings, ` +
+    `${glow.trips.length} trips, ${glow.markers.length} markers, ${glow.pulses} pulses`);
+  const cardBox = await rp.evaluate(() => {
+    const b = document.getElementById('agent').getBoundingClientRect();
+    return { x: b.left, y: b.top, w: b.width, h: b.height };
+  });
+  await shot(rp, '64-idle-agent-card.png', {
+    chrome: true,
+    clip: { x: Math.max(0, cardBox.x - 12), y: Math.max(0, cardBox.y - 12), width: cardBox.w + 24, height: cardBox.h + 24 }
+  });
+
+  // Flights, with the autopilot out of the way so nothing else steers.
+  await rp.evaluate(() => window.__wakeToggle('autopilot', false));
+  await sleep(300);
+  const flight = async (page, f) => page.evaluate((file) => new Promise((res) => {
+    const t0 = performance.now();
+    const target = window.__wakeGoto({ rowPx: 9, file, line: 0, ms: 900 });
+    const samples = [];
+    const tick = () => {
+      const now = performance.now() - t0;
+      const ov = window.__wakeOverlays().slots.find((s) => s.file === file);
+      // The camera deck.gl actually draws with, not the target the page
+      // already holds: a flight in progress sits between the two.
+      const vp = window.__deck.getViewports()[0];
+      samples.push({
+        t: now,
+        dz: Math.abs(vp.zoom - target.zoom),
+        opacity: ov && ov.style ? ov.style.opacity : null,
+        filter: ov && ov.style ? ov.style.filter : null
+      });
+      if (now < 700) requestAnimationFrame(tick);
+      else res(samples);
+    };
+    requestAnimationFrame(() => requestAnimationFrame(tick));
+  }), f);
+  // Warm the text store on both pages first, so the overlay is only waiting
+  // for the camera to rest, not for the worker.
+  await goto(rp, { rowPx: 9, file: codeFile, line: 0 }, 1500);
+  await goto(rp, { rowPx: 1.5, file: codeFile }, 800);
+  const reduced = await flight(rp, codeFile);
+  await goto(q, { rowPx: 9, file: codeFile, line: 0 }, 1500);
+  await goto(q, { rowPx: 1.5, file: codeFile }, 800);
+  const normal = await flight(q, codeFile);
+  // Instant: the very first frame after the call is already at the target and
+  // no frame sits between the two poses. The same probe on the normal page is
+  // reported, not asserted: on this build a programmatic 900 ms fly-to also
+  // lands on its first frame (deck.gl's viewState transition does not run for
+  // it), which is a finding for the spike, not part of the reduced-motion rule.
+  const between = (s) => s.filter((x) => x.dz >= 0.01).length;
+  const na = normal.find((x) => x.dz < 0.01);
+  ok(reduced.length > 0 && reduced[0].dz < 0.01 && between(reduced) === 0,
+    `j the flight is instant under reduced motion (at the target from the first frame, ` +
+    `${reduced[0]?.t.toFixed(0)} ms, ${between(reduced)} in-between frames; normal page for reference: ` +
+    `${between(normal)} in-between frames, arrives at ${na ? `${na.t.toFixed(0)} ms` : '>700 ms'})`);
+  const blurred = reduced.filter((x) => x.filter && /blur\((0*\.?[0-9]+)px\)/.test(x.filter) &&
+    parseFloat(x.filter.match(/blur\(([0-9.]+)px\)/)[1]) > 0.01);
+  const fadeIn = reduced.filter((x) => x.opacity !== null);
+  const partial = fadeIn.filter((x) => x.opacity > 0.02 && x.opacity < 0.9);
+  const settled = fadeIn.filter((x) => x.opacity > 0.97);
+  // The overlay mounts once the camera has rested (REST_MS 150) and fades in
+  // over 120 ms, so it is opaque well before 400 ms; a 300 ms unblur would not.
+  const firstFade = partial[0]?.t ?? null;
+  ok(blurred.length === 0 && partial.length > 0 && settled.length > 0 && settled[0].t < 400 &&
+    firstFade !== null && settled[0].t - firstFade < 200,
+    `j the unblur is a plain fade: ${blurred.length} blurred frames, ${partial.length} mid-fade frames ` +
+    `from ${firstFade?.toFixed(0)} ms, opaque at ${settled[0]?.t.toFixed(0)} ms`);
+  errors.push(...rr.errors, ...qq.errors);
+  await rp.close();
+  await q.close();
+  }
 
   console.log(errors.length ? `\nPAGE ERRORS:\n${errors.join('\n')}` : '\npage errors: none');
   if (failures.length) console.log(`FAILURES (${failures.length}):\n${failures.join('\n')}`);

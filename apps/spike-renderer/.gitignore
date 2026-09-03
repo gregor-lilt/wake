@@ -14,3 +14,5 @@ screenshots/3*.png
 screenshots/4*.png
 # phase-6 review shots of a real export: real names, real paths, real source
 screenshots/5*.png
+# quiet-pass shots of a real export: real names, real paths, real source
+screenshots/6*.png

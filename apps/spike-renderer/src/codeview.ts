@@ -952,13 +952,21 @@ export class CodeView {
    * `pending` are the files with a sheet whose text has not arrived yet.
    */
   barQuads(): { group: number; files: number; withQuads: number; pending: number; quads: number;
-    perFile: Array<{ file: number; quads: number }> } {
-    const perFile: Array<{ file: number; quads: number }> = [];
+    perFile: Array<{ file: number; quads: number; maxAlpha: number; nonCode: boolean }> } {
+    const perFile: Array<{ file: number; quads: number; maxAlpha: number; nonCode: boolean }> = [];
     let withQuads = 0;
     let pending = 0;
     let quads = 0;
     for (const b of this.lastBuilt) {
-      perFile.push({ file: b.file, quads: b.quads });
+      // The strongest quad of the sheet: 236 for code, half that for a
+      // non-code sheet (docs/design.md section 3), on both build paths.
+      let maxAlpha = 0;
+      const col = b.soup.colors;
+      for (let i = 3; i < b.soup.count * 16; i += 4) if (col[i] > maxAlpha) maxAlpha = col[i];
+      perFile.push({
+        file: b.file, quads: b.quads, maxAlpha,
+        nonCode: isNonCode(this.repo.filePath?.[b.file] ?? null)
+      });
       quads += b.quads;
       if (b.quads > 0) withQuads++;
     }
@@ -974,9 +982,11 @@ export class CodeView {
    */
   overlayInfo(width: number, height: number): Array<{
     file: number; sheet: { x: number; y: number; w: number; h: number }; inMargin: boolean;
+    nonCode: boolean; style: { opacity: number; filter: string; state: 'in' | 'out' } | null;
   }> {
     const out: Array<{
       file: number; sheet: { x: number; y: number; w: number; h: number }; inMargin: boolean;
+      nonCode: boolean; style: { opacity: number; filter: string; state: 'in' | 'out' } | null;
     }> = [];
     if (!this.pool || !this.lastProject) return out;
     const mx = width * OVERLAY_KEEP;
@@ -990,7 +1000,9 @@ export class CodeView {
         file: f,
         sheet: box,
         inMargin: box.x + box.w >= -mx && box.x <= width + mx &&
-          box.y + box.h >= -my && box.y <= height + my
+          box.y + box.h >= -my && box.y <= height + my,
+        nonCode: isNonCode(this.repo.filePath?.[f] ?? null),
+        style: this.pool.styleOf(f)
       });
     }
     return out;

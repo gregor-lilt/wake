@@ -22,7 +22,11 @@ async function waitForServer(url, timeoutMs = 30_000) {
 }
 
 export async function startServer() {
-  if (!existsSync(path.join(ROOT, 'dist', 'index.html'))) {
+  // Always build. The preview server serves dist/, so a suite run against a
+  // stale bundle silently checks the previous version of the code: skipping
+  // the build when dist/ merely exists cost more than the three seconds it
+  // takes.
+  if (process.env.WAKE_NO_BUILD !== '1' || !existsSync(path.join(ROOT, 'dist', 'index.html'))) {
     await run('npm', ['run', 'build']);
   }
   const bin = path.join(ROOT, 'node_modules', 'vite', 'bin', 'vite.js');

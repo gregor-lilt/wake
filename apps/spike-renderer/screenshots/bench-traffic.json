@@ -1,5 +1,5 @@
 {
-  "startedAt": "2026-09-03T13:13:57.507Z",
+  "startedAt": "2026-09-03T15:18:05.203Z",
   "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.0.0 Safari/537.36",
   "devicePixelRatio": 1,
   "canvas": {
@@ -19,9 +19,9 @@
     "roadVertices": 248288,
     "cityLabelCandidates": 24000,
     "sessionEvents": 130,
-    "genMs": 20,
-    "layoutMs": 18,
-    "roadsMs": 11,
+    "genMs": 36,
+    "layoutMs": 40,
+    "roadsMs": 23,
     "worldSide": 151552,
     "zoomBase": -6.98,
     "cityAreaPctOfRegion": 27.8,
@@ -38,11 +38,11 @@
     {
       "name": "continent",
       "zoom": -7.396,
-      "frames": 722,
+      "frames": 720,
       "medianMs": 8.3,
-      "p95Ms": 9,
-      "meanMs": 8.32,
-      "fps": 120.2,
+      "p95Ms": 9.3,
+      "meanMs": 8.33,
+      "fps": 120,
       "citiesInView": 50000,
       "labelsDrawn": 64,
       "roadsInView": 0,
@@ -53,7 +53,7 @@
       "zoom": -6.35,
       "frames": 720,
       "medianMs": 8.3,
-      "p95Ms": 8.7,
+      "p95Ms": 9.2,
       "meanMs": 8.33,
       "fps": 120,
       "citiesInView": 18152,
@@ -66,7 +66,7 @@
       "zoom": -4.051,
       "frames": 720,
       "medianMs": 8.3,
-      "p95Ms": 8.9,
+      "p95Ms": 9.3,
       "meanMs": 8.33,
       "fps": 120,
       "citiesInView": 986,
@@ -77,9 +77,9 @@
     {
       "name": "street",
       "zoom": 0.059,
-      "frames": 720,
+      "frames": 721,
       "medianMs": 8.3,
-      "p95Ms": 8.8,
+      "p95Ms": 9,
       "meanMs": 8.33,
       "fps": 120,
       "citiesInView": 13,
@@ -89,12 +89,12 @@
     }
   ],
   "deckMetrics": {
-    "fps": 119.99,
+    "fps": 119.82,
     "framesRedrawn": 60,
     "gpuTimePerFrame": 0,
-    "cpuTimePerFrame": 1.83,
-    "updateAttributesTime": 8.2,
-    "setPropsTime": 0.8
+    "cpuTimePerFrame": 1.78,
+    "updateAttributesTime": 10.9,
+    "setPropsTime": 1.7
   },
   "gl": {
     "webgl2": true,
