@@ -40,7 +40,7 @@ import { flightMs, reducedMotion, onMotionChange, dampTime, setReducedMotion } f
 import type { ConsoleLine, ConsoleHeader } from './agentconsole';
 import { buildTimeline } from './timeline';
 import { buildChanges } from './changes';
-import type { Change } from './changes';
+import type { Change, DiffScope } from './changes';
 import type { TickKind } from './timeline';
 import { runBench, formatBench } from './bench';
 import type { BenchResult } from './bench';
@@ -79,6 +79,8 @@ export interface MapOptions {
   reducedMotion?: boolean;
   /** The focused file changed: a click, a deep link, an autopilot landing. */
   onFocus?: (info: FileInfo | null) => void;
+  /** The user switched the changes list between uncommitted and this session. */
+  onDiffScope?: (scope: DiffScope) => void;
   /** The pointer moved onto or off a file. */
   onHover?: (info: FileInfo | null) => void;
   /** A session event reached the replay, live or from the snapshot. */
@@ -2047,6 +2049,13 @@ if (!exportDoc && dataName) {
       // straight back to the agent. Follow hands it back.
       setAutopilotOn(false);
       handle.focus(path);
+    },
+    scope: (next) => {
+      // The shell owns the source and the /changes fetch, so it learns the
+      // scope first; then every loaded diff is refetched under it.
+      options.onDiffScope?.(next);
+      codeView.invalidateLoaded();
+      redrawPending = true;
     }
   });
   function setChanges(list: Change[]): void {

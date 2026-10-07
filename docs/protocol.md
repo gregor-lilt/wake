@@ -11,13 +11,14 @@ model. The live protocol delivers that document once and then streams deltas.
   session part holds the events observed so far in the current session.
 - `GET /file?path=<repo-relative>` → current file text (validated against the
   node list, resolved inside the repo root).
-- `GET /diff?path=<repo-relative>` → unified diff of the working tree against
-  the session baseline for that file. The baseline is the commit HEAD pointed
-  at when the primary session started (from the reflog), so work the session
-  committed stays on the map. A file not in the baseline diffs against
-  `/dev/null`.
-- `GET /changes` → `{ base, files: [{ path, added, removed, created }] }`:
-  every file on the map that differs from the baseline, committed or not,
+- `GET /diff?path=<repo-relative>[&since=head|session]` → unified diff of the
+  working tree for that file. `since=head` (the default) is plain `git diff
+  HEAD`: what is not committed yet. `since=session` diffs against the session
+  baseline, the commit HEAD pointed at when the primary session started (from
+  the reflog), so work the session committed stays visible. A file not in the
+  base diffs against `/dev/null`.
+- `GET /changes[?since=head|session]` → `{ base, files: [{ path, added,
+  removed, created }] }`: every file on the map that differs from that base,
   plus untracked files (wholly added). Binary files report 0/0.
 - `POST /hook` → Claude Code http hook endpoint. Accepts every hook event the
   plugin registers. Responds per the Claude Code hook output schema. Pass

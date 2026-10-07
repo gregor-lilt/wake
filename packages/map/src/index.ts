@@ -29,7 +29,8 @@ export type {
   WireEvent, WireEdge, SessionState
 } from './protocol';
 export type { ThemeName, Theme } from './theme';
-export type { Change } from './changes';
+export type { Change, DiffScope } from './changes';
+export { storedDiffScope } from './changes';
 export type { SessionEvent, EventKind } from './session';
 export type { CodeSource } from './code';
 export { exportSource, daemonSource } from './code';

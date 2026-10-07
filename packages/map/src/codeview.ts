@@ -249,6 +249,11 @@ export class CodeView {
     this.store?.invalidate(file);
   }
 
+  /** The diff scope changed: refetch every loaded file's text and diff. */
+  invalidateLoaded(): void {
+    for (const f of this.store?.loaded() ?? []) this.invalidate(f);
+  }
+
   /** Give up the overlay pool and the tokenizer worker. */
   destroy(): void {
     this.pool?.destroy();

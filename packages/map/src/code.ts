@@ -13,6 +13,7 @@
 import type { TokenLang, TokenReply, TokenRequest } from './tokens.worker';
 import { parseUnifiedDiff, emptyDiff } from './diff';
 import type { FileDiff } from './diff';
+import type { DiffScope } from './changes';
 
 export interface CodeFile {
   file: number;
@@ -130,8 +131,12 @@ export function exportSource(dataName: string, diffRev = ''): CodeSource {
   };
 }
 
-/** A daemon serving docs/protocol.md's `/file` and `/diff` at `base`. */
-export function daemonSource(base: string): CodeSource {
+/**
+ * A daemon serving docs/protocol.md's `/file` and `/diff` at `base`. `since`
+ * is read on every diff request, so flipping the diff scope only needs the
+ * loaded files invalidated.
+ */
+export function daemonSource(base: string, since: () => DiffScope = () => 'head'): CodeSource {
   const url = (kind: string, path: string) => `${base.replace(/\/$/, '')}/${kind}?path=${encodeURIComponent(path)}`;
   return {
     async text(path) {
@@ -140,7 +145,7 @@ export function daemonSource(base: string): CodeSource {
       return res.text();
     },
     async diff(path) {
-      const res = await fetch(url('diff', path)).catch(() => null);
+      const res = await fetch(`${url('diff', path)}&since=${since()}`).catch(() => null);
       return res && res.ok ? res.text() : '';
     }
   };
@@ -190,6 +195,11 @@ export class CodeStore {
     this.ready.delete(file);
     this.failed.delete(file);
     if (had) this.request(file, 1);
+  }
+
+  /** Every file with text loaded or in flight, for a reload of all diffs. */
+  loaded(): number[] {
+    return [...new Set([...this.ready.keys(), ...this.text.keys()])];
   }
 
   /** Stop the tokenizer worker. */

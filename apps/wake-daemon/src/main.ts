@@ -227,9 +227,10 @@ async function serve(args: Args): Promise<void> {
           return json({ error: 'unreadable' }, 404);
         }
       }
-      // Against the session's baseline, not HEAD: an agent that commits as it
-      // goes would otherwise erase its own work from the map.
-      const base = sessionBase();
+      // `since=head` (default): plain `git diff`, what is not committed yet.
+      // `since=session`: against the session's baseline, so the work of an
+      // agent that commits as it goes stays on the map.
+      const base = url.searchParams.get('since') === 'session' ? sessionBase() : 'HEAD';
       const inBase = spawnSync('git', ['-C', args.repo, 'cat-file', '-e', `${base}:${rel}`]).status === 0;
       const diff = inBase
         ? gitDiff(args.repo, ['diff', base, '--', rel])
@@ -237,7 +238,7 @@ async function serve(args: Args): Promise<void> {
       return text(diff, 200, 'text/x-diff; charset=utf-8');
     }
     if (req.method === 'GET' && path === '/changes') {
-      const base = sessionBase();
+      const base = url.searchParams.get('since') === 'session' ? sessionBase() : 'HEAD';
       return json({ base, files: changedFiles(args.repo, base, map.fileIds) });
     }
     if (req.method === 'POST' && path === '/hook') {

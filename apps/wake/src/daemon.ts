@@ -57,8 +57,8 @@ export class Daemon {
    * `GET /changes`: every file that differs from the session's baseline, with
    * line counts. An older daemon without the endpoint answers 404: no list.
    */
-  async changes(signal?: AbortSignal): Promise<Change[]> {
-    const res = await fetch(`${this.base}/changes`, { signal });
+  async changes(since: 'head' | 'session' = 'head', signal?: AbortSignal): Promise<Change[]> {
+    const res = await fetch(`${this.base}/changes?since=${since}`, { signal });
     if (!res.ok) return [];
     return ((await res.json()) as { files: Change[] }).files;
   }

@@ -490,3 +490,10 @@ survives the edits above.
   never passed through the replay clock, so agent file, applied diffs and
   close-ups were missing live: one landEvent now serves both paths.
 
+- 2026-10-07. Review: after a commit and push the map still showed diffs,
+  because they were against the session baseline. Decided: the changes list
+  carries a scope switch, `uncommitted` (plain `git diff HEAD`, the default,
+  what "git diff" means to everyone) and `session` (against the commit the
+  session started on, for an agent that commits as it goes). Remembered per
+  browser. The list stays visible at zero ("Nothing uncommitted") so the
+  switch is always reachable.

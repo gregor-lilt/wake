@@ -8,8 +8,8 @@
  * the `/live` socket feeding deltas into the map handle.
  */
 import { createSignal, onCleanup, onMount, Show } from 'solid-js';
-import { createMap, daemonSource, Splash } from '@wake/map';
-import type { MapHandle, ServerMessage } from '@wake/map';
+import { createMap, daemonSource, Splash, storedDiffScope } from '@wake/map';
+import type { DiffScope, MapHandle, ServerMessage } from '@wake/map';
 import { Daemon, daemonUrl } from './daemon';
 import type { Connection } from './daemon';
 import { ControlCluster } from './components/ControlCluster';
@@ -52,6 +52,8 @@ export function App() {
   let mapEl!: HTMLDivElement;
   let map: MapHandle | null = null;
   let daemon: Daemon | null = null;
+  /** Uncommitted (HEAD) or since the session started, chosen in the changes list. */
+  let scope: DiffScope = storedDiffScope();
   let changesTimer = 0;
   let changesDebounce = 0;
 
@@ -59,7 +61,7 @@ export function App() {
   function refreshChanges(delayMs = 800): void {
     window.clearTimeout(changesDebounce);
     changesDebounce = window.setTimeout(() => {
-      void daemon?.changes().then((list) => map?.setChanges(list)).catch(() => {});
+      void daemon?.changes(scope).then((list) => map?.setChanges(list)).catch(() => {});
     }, delayMs);
   }
 
@@ -74,7 +76,11 @@ export function App() {
       debugPanels: qs.get('debug') === '1',
       // Without a daemon the source comes from the export middleware, which
       // the package wires up itself from `?data=`.
-      source: dataName ? undefined : daemonSource(base),
+      source: dataName ? undefined : daemonSource(base, () => scope),
+      onDiffScope: (next) => {
+        scope = next;
+        refreshChanges(0);
+      },
       dataName,
       onFocus: () => { /* the jump bar in the package already says where we are */ }
     });

@@ -448,8 +448,12 @@ body.nohud #agent { display: none; }
   overflow: hidden;
 }
 #changes[hidden], body.nohud #changes { display: none; }
+#changes .ch-bar { display: flex; align-items: center; padding-right: 8px; }
+#changes .ch-scope { display: flex; gap: 4px; }
+#changes .ch-scope button { font-size: 10px; padding: 2px 7px; line-height: 1.4; opacity: .6; }
+#changes .ch-scope button.on { opacity: 1; }
 #changes .ch-head {
-  display: flex; align-items: center; gap: 8px; width: 100%;
+  display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0;
   border: 0; border-radius: 0; padding: 7px 10px; text-align: left;
 }
 #changes .ch-head:hover { color: inherit; }
