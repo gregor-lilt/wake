@@ -1,9 +1,10 @@
 # Wake
 
-The map for the human behind the coding agent.
+Air traffic control for your coding agents.
 
-A live, navigable map of your project that shows what Claude Code reads, edits,
-and plans, lets you take the wheel, and walks you through the changes afterwards.
+A live map of your project with every Claude Code session on it. Wake shows
+where each agent is and where it is heading, calls you when one needs you, and
+hands you a shareable recap when the work is done.
 
 See [PLAN.md](PLAN.md) for the product plan, [docs/design.md](docs/design.md)
 for how the map has to look and behave, and [docs/protocol.md](docs/protocol.md)
