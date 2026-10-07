@@ -371,8 +371,9 @@ Each milestone is usable on its own.
 - M0. Replay (done as a prototype). Static map plus session playback.
 - M1. Live, read only (done). Daemon with hooks and transcript tail, live map,
   autopilot camera.
-- M1.5. Front door. `npx wake` in any repository opens the most recent
-  transcript and plays it. No hooks, no config. Ten seconds to wow.
+- M1.5. Front door (done as `wake`, `npx` packaging open). `wake` in any
+  repository opens the most recent transcript and plays it with a timeline.
+  No hooks, no config. Ten seconds to wow.
 - M2. Alarms and the real chat. Embedded Claude Code terminal, stop, fences,
   the alarm engine with Needs you, Blind edit, Drift, Loop, Regression, Done.
   Desktop and phone delivery.

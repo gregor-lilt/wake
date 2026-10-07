@@ -237,7 +237,8 @@ user works. So labels are anchored to the viewport, not to corners.
   show the command, message lines show the agent's own words trimmed to a
   sentence or two in a distinct tone, so narration reads apart from actions.
   Clicking a line with a file flies there. The console is the only
-  always-visible panel besides the jump bar and the minimap. Frame rate and
+  always-visible panel besides the jump bar and the minimap, plus, in
+  replay mode only, the timeline along the bottom edge. Frame rate and
   internals live behind a debug flag.
 - The controls panel is collapsed by default and remembers its state.
 - The minimap appears at schematic zoom and deeper, bottom right, and shows
@@ -453,3 +454,12 @@ survives the edits above.
   event bookkeeping lived inside the camera step. Events are now consumed
   regardless of the toggle, only the camera part is gated. Rule: what the
   agent did must land on the map whether or not the camera follows.
+- 2026-10-07. M1.5 front door: `wake` (apps/wake-cli) replays the latest
+  session that worked in the current repository, found by per-record cwd so a
+  session started elsewhere counts. Replay mode gained a timeline, the one new
+  piece of chrome: bottom edge right of the agent console, same ground and
+  border, one canvas of ticks coloured by kind (edits in the accent, prompts
+  bright, reads dim), a glowing accent playhead, play/pause and a speed chip
+  (1x to 8x). Click or drag scrubs, space pauses, shift+arrows step. Hidden
+  in live mode. Slash-command wrappers and system reminders no longer show up
+  as user prompts in the export.

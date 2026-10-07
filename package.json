@@ -8,5 +8,8 @@
     "packages/map",
     "apps/spike-renderer",
     "apps/wake"
-  ]
+  ],
+  "bin": {
+    "wake": "bin/wake"
+  }
 }

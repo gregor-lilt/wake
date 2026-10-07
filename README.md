@@ -10,9 +10,19 @@ See [PLAN.md](PLAN.md) for the product plan, [docs/design.md](docs/design.md)
 for how the map has to look and behave, and [docs/protocol.md](docs/protocol.md)
 for the contract between the daemon and the map.
 
-## Running the app
+## Replay your last session
 
-The app needs a daemon watching a repository, and a browser.
+```
+npm install && npm link              # once, at the root
+cd /any/repository && wake           # plays the latest Claude Code session there
+```
+
+No hooks and no daemon: `wake` reads the transcript Claude Code already wrote
+and opens the map in replay mode. See [apps/wake-cli](apps/wake-cli/README.md).
+
+## Running the app live
+
+The live app needs a daemon watching a repository, and a browser.
 
 ```
 npm install                          # once, at the root; this is a workspace

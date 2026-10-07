@@ -1,0 +1,5 @@
+#!/bin/sh
+# The front door: replay the latest Claude Code session of the repository you are in.
+SELF=$(readlink -f "$0" 2>/dev/null || echo "$0")
+HERE=$(cd "$(dirname "$SELF")/.." && pwd -P)
+exec node --experimental-strip-types --no-warnings=ExperimentalWarning "$HERE/apps/wake-cli/src/main.ts" "$@"

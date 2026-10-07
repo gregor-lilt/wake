@@ -38,11 +38,13 @@ import type { Toggles } from './hud';
 import { buildAgentConsole, fallbackTitle, lineKindOf } from './agentconsole';
 import { flightMs, reducedMotion, onMotionChange, dampTime, setReducedMotion } from './motion';
 import type { ConsoleLine, ConsoleHeader } from './agentconsole';
+import { buildTimeline } from './timeline';
+import type { TickKind } from './timeline';
 import { runBench, formatBench } from './bench';
 import type { BenchResult } from './bench';
 import { makeRng } from './rng';
 import { buildSession, pathOf, heatOf } from './session';
-import type { Session } from './session';
+import type { Session, SessionEvent } from './session';
 import { fetchExport, buildFixture, mapSessionEvent } from './exportmap';
 import type { ExportDoc, ExportMeta, ExportNode } from './exportmap';
 import { Autopilot } from './autopilot';
@@ -234,6 +236,7 @@ const canvas = el('map', 'canvas') as HTMLCanvasElement;
 const hudEl = el('hud', 'div');
 const controlsEl = el('controls', 'div');
 const agentEl = el('agent', 'div');
+const timelineEl = el('timeline', 'div');
 
 // ------------------------------------------------------------------- fixture
 // `?data=<name>` loads a real repository export instead of the synthetic
@@ -1976,6 +1979,24 @@ if (!exportDoc && dataName) {
   agentConsole.setLines(consoleLineList);
   let consoleCursor = -1;
 
+  /**
+   * The replay timeline (PLAN.md section 12): a finished session only. Live
+   * mode has no timeline, the daemon is the clock.
+   */
+  const timeline = buildTimeline(timelineEl, {
+    setPaused: (p) => autopilot.setPaused(p, performance.now()),
+    scrub: (i) => scrubTo(i),
+    setCadence: (ms) => autopilot.setCadence(ms, performance.now())
+  });
+  const tickOf = (e: SessionEvent): TickKind =>
+    e.kind === 'edit' || e.kind === 'write' ? 'edit'
+      : e.kind === 'read' || e.kind === 'search' ? 'read'
+        : e.kind === 'run' ? 'run'
+          : e.kind === 'message' ? (e.role === 'user' ? 'prompt' : 'say')
+            : 'other';
+  if (live) timelineEl.hidden = true;
+  else timeline.setEvents(session.events.map(tickOf), consoleLineList.map((l) => l.time));
+
   function countVisible(): { cities: number; edges: number; buildings: number } {
     const [x0, y0, x1, y1] = bounds();
     let c = 0;
@@ -2095,6 +2116,7 @@ if (!exportDoc && dataName) {
     if (autopilot.cursor !== consoleCursor) {
       consoleCursor = autopilot.cursor;
       agentConsole.setCursor(consoleCursor);
+      if (!live) timeline.setCursor(consoleCursor);
     }
 
     if (redrawPending) {
@@ -2185,6 +2207,7 @@ if (!exportDoc && dataName) {
     repaint();
     rebuildBinaries();
     applyCss();
+    timeline.redraw();
     redrawPending = true;
   }
 

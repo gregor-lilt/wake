@@ -80,6 +80,22 @@ export function clip(raw: unknown, max: number): string {
   return flat.length <= max ? flat : `${flat.slice(0, max - 1).trimEnd()}\u2026`;
 }
 
+/**
+ * What the user actually typed. Claude Code wraps slash commands and their
+ * output in tags (`<command-name>`, `<local-command-stdout>`, a caveat record)
+ * and injects `<system-reminder>` blocks: a slash command reads as the command
+ * itself, its output and the caveat are not prompts, reminders are dropped.
+ */
+export function promptText(raw: string): string {
+  if (raw.includes('<local-command-caveat>') || raw.includes('<local-command-stdout>')) return '';
+  const name = /<command-name>([^<]*)<\/command-name>/.exec(raw);
+  if (name) {
+    const args = /<command-args>([^<]*)<\/command-args>/.exec(raw);
+    return `${name[1]!.trim()} ${args?.[1]?.trim() ?? ''}`.trim();
+  }
+  return raw.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim();
+}
+
 /** The words of a user or assistant message: every text block joined. */
 function textOf(record: RawRecord): string {
   const content = record.message?.content;
@@ -493,7 +509,7 @@ export function buildSession(
         const isToolResult =
           Array.isArray(content) && blocks(record).some((b) => b.type === 'tool_result');
         if (isToolResult) continue;
-        const text = clip(textOf(record), 240);
+        const text = clip(promptText(textOf(record)), 240);
         if (text === '') {
           emptyMessagesSkipped++;
           continue;

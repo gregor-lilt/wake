@@ -201,6 +201,8 @@ const main = async () => {
     const live = await boot.page.evaluate(() => window.__wakeApp());
     ok(live.connection === 'live', `c the socket is live and the header shows no chip (${live.offlineChip ?? 'none'})`);
     await boot.page.screenshot({ path: path.join(OUT, '02-live.png') });
+    const liveTimeline = await boot.page.evaluate(() => document.getElementById('timeline')?.hidden ?? true);
+    ok(liveTimeline, 'c live mode has no replay timeline: the daemon is the clock');
 
     // ---- d: autopilot follows an edit into the reading band ----------------
     // The camera is the replay's while autopilot is on; wait for it to land on
@@ -359,6 +361,29 @@ const main = async () => {
     ok(offApp.failure === null, 'f and reports no failure, because it never needed one');
     const offCode = await off.page.evaluate(() => window.__wakeCodeState());
     ok(offCode.enabled, 'f the source tier is live on the fallback path too');
+
+    // ---- f: the replay timeline (PLAN.md section 12) -------------------------
+    const tl = () => off.page.evaluate(() => {
+      const el = document.getElementById('timeline');
+      const [time, count] = [...el.querySelectorAll('span')].map((x) => x.textContent);
+      return { hidden: el.hidden, time, count, paused: el.classList.contains('paused') };
+    });
+    const tl0 = await tl();
+    ok(!tl0.hidden && tl0.count.endsWith(`/ ${EVENTS}`), `f the replay timeline shows the whole session (${tl0.count})`);
+    const track = await off.page.locator('#timeline .tl-track').boundingBox();
+    await off.page.mouse.click(track.x + track.width * 0.75, track.y + track.height / 2);
+    await sleep(300);
+    const tl1 = await tl();
+    const at = Number(tl1.count.split(' / ')[0]);
+    ok(Math.abs(at - Math.round(EVENTS * 0.75)) <= 1, `f a click at 75% of the track scrubs there (${tl1.count})`);
+    await off.page.keyboard.press('Space');
+    const held = await tl();
+    await sleep(1800); // one replay cadence (1500 ms) and some
+    const still = await tl();
+    ok(held.paused && still.count === held.count, `f space pauses the replay and it holds (${still.count})`);
+    await off.page.keyboard.press('Space');
+    await sleep(1800); // one replay cadence (1500 ms) and some
+    ok(!(await tl()).paused && (await tl()).count !== still.count, 'f space again resumes it');
     await off.page.screenshot({ path: path.join(OUT, '08-no-daemon.png') });
     await off.page.close();
 

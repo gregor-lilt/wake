@@ -388,3 +388,46 @@ body.nohud #agent { display: none; }
   border: 1px solid rgba(248, 81, 73, .38);
   white-space: nowrap;
 }
+
+/* ---------------------------------------- replay timeline (PLAN.md section 12) */
+/* Bottom edge, right of the agent console, finished sessions only. Same
+   language as the console: opaque ground, hairline border, small caps chips. */
+#timeline {
+  position: absolute;
+  bottom: 12px;
+  left: calc(min(400px, 46vw) + 24px + 22px);
+  right: 12px;
+  height: 34px;
+  display: flex; align-items: center; gap: 8px;
+  padding: 0 10px;
+  border: 1px solid var(--border, rgba(255,255,255,0.12));
+  border-radius: 10px;
+  background: var(--jump, #171b21);
+  color: var(--fg, #e6e6e6);
+  font-size: 11px;
+  z-index: 5;
+  user-select: none;
+}
+#timeline[hidden], body.nohud #timeline { display: none; }
+#timeline button {
+  font-size: 10px; line-height: 1.4; padding: 2px 8px; min-width: 30px;
+  letter-spacing: .06em;
+}
+#timeline .tl-play { font-size: 9px; }
+#timeline.paused .tl-play { color: var(--accent, #ffb050); border-color: var(--accent, #ffb050); }
+#timeline .tl-track {
+  position: relative; flex: 1; height: 20px; cursor: pointer; touch-action: none;
+}
+#timeline .tl-ticks { position: absolute; inset: 0; width: 100%; height: 100%; }
+#timeline .tl-head {
+  position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px;
+  background: var(--accent, #ffb050); border-radius: 1px;
+  box-shadow: 0 0 6px var(--accent, #ffb050);
+  transition: left 250ms cubic-bezier(.2,.7,.2,1);
+}
+#timeline.dragging .tl-head { transition: none; }
+#timeline .tl-time, #timeline .tl-count {
+  font-variant-numeric: tabular-nums; opacity: .6; white-space: nowrap;
+}
+#timeline .tl-count { min-width: 56px; text-align: right; }
+@media (prefers-reduced-motion: reduce) { #timeline .tl-head { transition: none; } }
