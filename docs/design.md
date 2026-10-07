@@ -463,3 +463,15 @@ survives the edits above.
   (1x to 8x). Click or drag scrubs, space pauses, shift+arrows step. Hidden
   in live mode. Slash-command wrappers and system reminders no longer show up
   as user prompts in the export.
+- 2026-10-07. Live without hooks: `wake --live` runs the daemon in
+  transcript mode, so the session building Wake was watched in Wake. It
+  exposed three defects, all fixed. The autopilot centred on the last three
+  touches but zoomed to fit a different set (the time window), so with a
+  backdated snapshot it sat at reading zoom on empty terrain between distant
+  files. With no recent touch the camera now centres on the newest file and
+  frames that file, so centre and zoom come from the same place. Two wider
+  fixes (fitting all three) broke the zoom into a single edit and were
+  caught by verify check d. A file created mid-session got an id past the symbols and a reload
+  crashed on `nodes[id]`, the renderer now looks nodes up by id. Build output
+  git ignores no longer appears as new land. Run lines now read as the
+  agent's own description of the command.

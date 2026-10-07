@@ -1,6 +1,6 @@
 // wake-daemon: the live side of Wake (docs/protocol.md).
 //
-//   wake-daemon serve --repo <path> [--port 7777] [--fence <glob>]...
+//   wake-daemon serve --repo <path> [--port 7777] [--fence <glob>]... [--transcript <file>]
 //   wake-daemon init  --repo <path> [--port 7777]
 //
 // Runs on Bun (Bun.serve, Bun.spawn). Falls back to Node >= 23.6 with the
@@ -9,7 +9,7 @@
 // The repository path only ever comes from the command line. There is no
 // default and nothing about any repository is baked into this app.
 
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { basename, resolve } from 'node:path';
@@ -29,6 +29,8 @@ interface Args {
   readonly host: string;
   readonly fences: string[];
   readonly permissionTimeoutS: number;
+  /** Transcript mode: tail this Claude Code transcript instead of waiting for hooks. */
+  readonly transcript: string | null;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -40,6 +42,7 @@ function parseArgs(argv: string[]): Args {
   let port = Number(process.env['WAKE_PORT'] ?? 7777);
   const fences: string[] = [];
   let permissionTimeoutS = Number(process.env['WAKE_PERMISSION_TIMEOUT'] ?? 600);
+  let transcript: string | null = null;
   for (let i = 1; i < argv.length; i++) {
     const arg = argv[i]!;
     const next = argv[i + 1];
@@ -52,6 +55,9 @@ function parseArgs(argv: string[]): Args {
     } else if (arg === '--fence' && next !== undefined) {
       fences.push(next);
       i++;
+    } else if (arg === '--transcript' && next !== undefined) {
+      transcript = resolve(next);
+      i++;
     } else if (arg === '--permission-timeout' && next !== undefined) {
       permissionTimeoutS = Number(next);
       i++;
@@ -62,7 +68,8 @@ function parseArgs(argv: string[]): Args {
   if (repo === '') throw new Error('--repo <path> is required; there is deliberately no default');
   const abs = resolve(repo);
   if (!existsSync(abs)) throw new Error(`repository not found: ${abs}`);
-  return { command, repo: abs, port, host: '127.0.0.1', fences, permissionTimeoutS };
+  if (transcript !== null && !existsSync(transcript)) throw new Error(`transcript not found: ${transcript}`);
+  return { command, repo: abs, port, host: '127.0.0.1', fences, permissionTimeoutS, transcript };
 }
 
 const JSON_HEADERS = {
@@ -121,11 +128,29 @@ async function serve(args: Args): Promise<void> {
     afterHook: () => tail(),
   });
 
+  // Transcript mode: no hooks, the transcript is the whole event source. The
+  // session is running while the file grows and idle after a quiet spell.
+  const QUIET_MS = 30_000;
+  let lastGrowth = Date.now();
+  if (args.transcript !== null) {
+    const store = sessions.get(sessionIdOf(args.transcript), args.transcript);
+    store.tailAll = true;
+    say(`transcript mode  ${args.transcript}`);
+  }
+
   // Transcript tail: on every hook and every 500 ms.
   const tail = (): void => {
     const primary = sessions.primary;
     if (primary === null) return;
-    for (const event of primary.tailTranscript()) say(`transcript       ${event.title}: ${clipLog(event.text)}`);
+    const fresh = primary.tailTranscript();
+    for (const event of fresh) say(`transcript       ${event.title}${event.text ? `: ${clipLog(event.text)}` : ''}`);
+    if (args.transcript === null) return;
+    if (fresh.length > 0) {
+      lastGrowth = Date.now();
+      primary.setState('running');
+    } else if (Date.now() - lastGrowth > QUIET_MS) {
+      primary.setState('idle');
+    }
   };
   const tailTimer = setInterval(tail, 500);
   tailTimer.unref?.();
@@ -268,6 +293,18 @@ async function serve(args: Args): Promise<void> {
   };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
+}
+
+/** The session id a transcript records, or its file name when it records none yet. */
+function sessionIdOf(transcript: string): string {
+  try {
+    const head = readFileSync(transcript, 'utf8').slice(0, 65536);
+    const m = /"sessionId":"([^"]+)"/.exec(head);
+    if (m) return m[1]!;
+  } catch {
+    // fall through to the file name
+  }
+  return basename(transcript, '.jsonl');
 }
 
 /** `git diff` exits 1 when there are differences, so the exit code is not an error here. */

@@ -20,7 +20,7 @@
 // Deleted files keep their node and rect (the export's worktree mode does the
 // same for tracked files: a deletion never removes a city mid-session).
 
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { closeSync, openSync, readFileSync, readSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -179,8 +179,13 @@ export class LiveMap {
     const invalidated: { path: string; lines: number }[] = [];
     let needLayout = false;
 
+    // A path the map has never seen is only new land when git would track
+    // it: the watcher reports build output (dist/, target/) too, and a file
+    // git ignores is not part of the repository's geography.
+    const unknown = paths.filter((rel) => !this.entries.has(rel) && !isInternalPath(rel));
+    const ignored = gitIgnored(this.repo, unknown);
     for (const rel of paths) {
-      if (isInternalPath(rel)) continue;
+      if (isInternalPath(rel) || ignored.has(rel)) continue;
       const abs = join(this.repo, rel);
       let size: number;
       try {
@@ -278,4 +283,11 @@ export class LiveMap {
     this.keepAlive?.close();
     this.keepAlive = null;
   }
+}
+
+/** The subset of repo-relative paths git ignores, in one `git check-ignore` call. */
+function gitIgnored(repo: string, paths: readonly string[]): Set<string> {
+  if (paths.length === 0) return new Set();
+  const res = spawnSync('git', ['-C', repo, 'check-ignore', '--stdin'], { input: paths.join('\n'), encoding: 'utf8' });
+  return new Set((res.stdout ?? '').split('\n').filter((line) => line !== ''));
 }

@@ -5,14 +5,22 @@
 //   wake --repo <path>         another repository
 //   wake --session <file>      a specific transcript instead of the latest
 //   wake --list                the recent sessions that worked in the repo
+//   wake --live                watch the latest session as it happens
+//   wake --live --session-id <id> --detach
+//                              what /wake runs from inside a Claude Code
+//                              session: that session, in the background,
+//                              reusing a running instance for the same one
+//   wake --stop                stop the background instance for this repo
 //   wake --port 5300 --no-open
 //
-// No hooks, no config, no daemon. It reads transcripts Claude Code already
-// wrote, exports the repository and that session (packages/export, worktree
-// mode), and serves the app in replay mode on loopback.
+// No hooks, no config. Replay reads the transcript Claude Code already wrote,
+// exports the repository and that session (packages/export, worktree mode),
+// and serves the app in replay mode on loopback. `--live` instead starts the
+// daemon in transcript mode, which tails the same file as it grows, so a
+// session that is already running can be watched without restarting it.
 
 import { spawn, spawnSync } from 'node:child_process';
-import { closeSync, existsSync, openSync, readSync, readdirSync, statSync } from 'node:fs';
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 
@@ -31,10 +39,13 @@ interface Args {
   readonly port: number;
   readonly open: boolean;
   readonly list: boolean;
+  readonly live: boolean;
+  readonly detach: boolean;
+  readonly stop: boolean;
 }
 
 function usage(): never {
-  console.error('usage: wake [--repo <path>] [--session <transcript.jsonl>] [--list] [--port 5300] [--no-open]');
+  console.error('usage: wake [--repo <path>] [--session <transcript.jsonl> | --session-id <id>] [--live] [--detach] [--stop] [--list] [--port 5300] [--no-open]');
   process.exit(2);
 }
 
@@ -44,6 +55,9 @@ function parseArgs(argv: string[]): Args {
   let port = Number(process.env['WAKE_PORT'] ?? 5300);
   let open = true;
   let list = false;
+  let live = false;
+  let detach = false;
+  let stop = false;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
     const next = argv[i + 1];
@@ -53,6 +67,13 @@ function parseArgs(argv: string[]): Args {
     } else if (arg === '--session' && next !== undefined) {
       session = resolve(next);
       i++;
+    } else if (arg === '--session-id' && next !== undefined) {
+      session = transcriptForId(next);
+      i++;
+    } else if (arg === '--detach') {
+      detach = true;
+    } else if (arg === '--stop') {
+      stop = true;
     } else if (arg === '--port' && next !== undefined) {
       port = Number(next);
       i++;
@@ -60,11 +81,105 @@ function parseArgs(argv: string[]): Args {
       open = false;
     } else if (arg === '--list') {
       list = true;
+    } else if (arg === '--live') {
+      live = true;
     } else {
       usage();
     }
   }
-  return { repo: gitRoot(resolve(repo ?? process.cwd())), session, port, open, list };
+  return { repo: gitRoot(resolve(repo ?? process.cwd())), session, port, open, list, live, detach, stop };
+}
+
+/** `<projects>/<any slug>/<id>.jsonl`: a session id names one transcript wherever it was started. */
+function transcriptForId(id: string): string {
+  if (!/^[A-Za-z0-9-]+$/.test(id)) throw new Error(`not a session id: ${id}`);
+  for (const project of readdirSync(PROJECTS)) {
+    const path = join(PROJECTS, project, `${id}.jsonl`);
+    if (existsSync(path)) return path;
+  }
+  throw new Error(`no transcript for session ${id} under ${PROJECTS}`);
+}
+
+// ------------------------------------------------------------------ background instance
+
+/**
+ * One background live instance per repository, described in
+ * `.wake/live/wake.json` so a second `/wake` reuses it instead of starting
+ * another daemon and app server.
+ */
+interface Running {
+  readonly pid: number;
+  readonly transcript: string;
+  readonly url: string;
+}
+
+function stateFile(repo: string): string {
+  return join(repo, '.wake', 'live', 'wake.json');
+}
+
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function readRunning(repo: string): Running | null {
+  try {
+    const r = JSON.parse(readFileSync(stateFile(repo), 'utf8')) as Running;
+    return alive(r.pid) ? r : null;
+  } catch {
+    return null;
+  }
+}
+
+function stopRunning(repo: string): boolean {
+  const r = readRunning(repo);
+  rmSync(stateFile(repo), { force: true });
+  if (r === null) return false;
+  process.kill(r.pid, 'SIGTERM');
+  return true;
+}
+
+/**
+ * The daemon writes `.wake/live/` into the repository, so it has to be
+ * ignored before anything is written, or the event log shows up on the map
+ * as new files. Local only: `<common git dir>/info/exclude`, never a tracked
+ * file. The same rule `wake-daemon init` writes.
+ */
+function excludeWakeDir(repo: string): void {
+  if (spawnSync('git', ['-C', repo, 'check-ignore', '-q', '.wake/x']).status === 0) return;
+  const common = spawnSync('git', ['-C', repo, 'rev-parse', '--git-common-dir'], { encoding: 'utf8' }).stdout.trim();
+  const info = join(resolve(repo, common), 'info');
+  mkdirSync(info, { recursive: true });
+  appendFileSync(join(info, 'exclude'), '\n# Wake: event logs and exports\n.wake/\n');
+}
+
+/**
+ * Start this command again without `--detach`, detached from the terminal,
+ * output to `.wake/live/wake.log`, and return once it has written its URL.
+ */
+async function detachSelf(repo: string): Promise<void> {
+  const log = join(repo, '.wake', 'live', 'wake.log');
+  mkdirSync(join(repo, '.wake', 'live'), { recursive: true });
+  const fd = openSync(log, 'w');
+  const argv = process.argv.slice(1).filter((a) => a !== '--detach');
+  const child = spawn(process.execPath, [...process.execArgv, ...argv], { detached: true, stdio: ['ignore', fd, fd] });
+  child.unref();
+  for (let i = 0; i < 600; i++) {
+    const r = readRunning(repo);
+    if (r !== null && r.pid === child.pid) {
+      console.log(`  live      ${r.url}`);
+      console.log(`  log       ${log}`);
+      console.log('  stop      wake --stop\n');
+      return;
+    }
+    if (child.exitCode !== null) break;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error(`the background instance did not start, see ${log}:\n${readFileSync(log, 'utf8')}`);
 }
 
 function gitRoot(dir: string): string {
@@ -253,6 +368,61 @@ function runExport(repo: string, transcript: string, name: string): void {
   step('session', `${events}, ${duration}`);
 }
 
+/** Bun runs the daemon (Bun.serve, Bun.spawn). On the PATH, or where its installer puts it. */
+function findBun(): string {
+  const which = spawnSync('which', ['bun'], { encoding: 'utf8' });
+  if (which.status === 0 && which.stdout.trim() !== '') return which.stdout.trim();
+  const local = join(homedir(), '.bun', 'bin', 'bun');
+  if (existsSync(local)) return local;
+  throw new Error('--live needs Bun >= 1.4 (https://bun.sh), the daemon runs on it');
+}
+
+/**
+ * The daemon in transcript mode, on the first free port from 7777. Resolves
+ * with its base URL once /health answers. It dies with this process.
+ */
+async function startDaemon(repo: string, transcript: string): Promise<string> {
+  const bun = findBun();
+  const port = await freePort(Number(process.env['WAKE_DAEMON_PORT'] ?? 7777));
+  const child = spawn(
+    bun,
+    ['run', join(WAKE_ROOT, 'apps', 'wake-daemon', 'src', 'main.ts'), 'serve', '--repo', repo, '--port', String(port), '--transcript', transcript],
+    { stdio: ['ignore', 'pipe', 'pipe'] },
+  );
+  let output = '';
+  child.stdout.on('data', (d: Buffer) => { output += d.toString(); });
+  child.stderr.on('data', (d: Buffer) => { output += d.toString(); });
+  const stop = (): void => { child.kill('SIGTERM'); };
+  process.on('exit', stop);
+  for (const signal of ['SIGINT', 'SIGTERM'] as const) process.on(signal, () => { stop(); process.exit(0); });
+
+  const base = `http://127.0.0.1:${port}`;
+  for (let i = 0; i < 300; i++) {
+    if (child.exitCode !== null) throw new Error(`daemon exited:\n${output}`);
+    try {
+      const r = await fetch(`${base}/health`);
+      if (r.ok) return base;
+    } catch {
+      // not listening yet
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error(`daemon did not come up in 30 s:\n${output}`);
+}
+
+async function freePort(from: number): Promise<number> {
+  const { createServer } = await import('node:net');
+  for (let port = from; port < from + 50; port++) {
+    const ok = await new Promise<boolean>((done) => {
+      const srv = createServer();
+      srv.once('error', () => done(false));
+      srv.listen(port, '127.0.0.1', () => srv.close(() => done(true)));
+    });
+    if (ok) return port;
+  }
+  throw new Error(`no free port in ${from}..${from + 49}`);
+}
+
 function openBrowser(url: string): void {
   const cmd = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
   spawn(cmd, [url], { stdio: 'ignore', detached: true }).unref();
@@ -263,6 +433,11 @@ function openBrowser(url: string): void {
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   console.log(`\n  wake  ${args.repo}\n`);
+
+  if (args.stop) {
+    console.log(stopRunning(args.repo) ? '  stopped\n' : '  nothing running\n');
+    return;
+  }
 
   if (args.list) {
     const sessions = findSessions(args.repo, 10);
@@ -285,9 +460,39 @@ async function main(): Promise<void> {
     throw new Error(`no such transcript: ${transcript}`);
   }
 
+  if (args.live) {
+    excludeWakeDir(args.repo);
+    const running = readRunning(args.repo);
+    if (running !== null && running.transcript === transcript) {
+      // Already watching this session: show it again, start nothing.
+      step('running', running.url);
+      if (args.open) openBrowser(running.url);
+      console.log('');
+      return;
+    }
+    if (running !== null) {
+      step('replacing', `the instance watching ${basename(running.transcript, '.jsonl')}`);
+      stopRunning(args.repo);
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    if (args.detach) {
+      await detachSelf(args.repo);
+      return;
+    }
+  }
+
   ensureIndexer();
-  const name = exportName(args.repo);
-  runExport(args.repo, transcript, name);
+  let query: string;
+  if (args.live) {
+    const daemon = await startDaemon(args.repo, transcript);
+    const health = await (await fetch(`${daemon}/health`)).json() as { sessionId: string | null };
+    step('daemon', `${daemon}, tailing ${health.sessionId ?? 'the transcript'}`);
+    query = `?daemon=${encodeURIComponent(daemon)}`;
+  } else {
+    const name = exportName(args.repo);
+    runExport(args.repo, transcript, name);
+    query = `?data=${encodeURIComponent(name)}&autopilot=1`;
+  }
   ensureAppBuilt();
 
   const { preview } = await import(join(WAKE_ROOT, 'node_modules', 'vite', 'dist', 'node', 'index.js'));
@@ -298,9 +503,16 @@ async function main(): Promise<void> {
     preview: { port: args.port, strictPort: false, host: '127.0.0.1', open: false },
   });
   const address = server.httpServer.address() as { port: number };
-  const url = `http://127.0.0.1:${address.port}/?data=${encodeURIComponent(name)}&autopilot=1`;
+  const url = `http://127.0.0.1:${address.port}/${query}`;
   step('ready', url);
   console.log('\n  Ctrl+C to stop.\n');
+  if (args.live) {
+    const running: Running = { pid: process.pid, transcript, url };
+    writeFileSync(stateFile(args.repo), JSON.stringify(running));
+    process.on('exit', () => {
+      if (readRunning(args.repo)?.pid === process.pid) rmSync(stateFile(args.repo), { force: true });
+    });
+  }
   if (args.open) openBrowser(url);
 }
 

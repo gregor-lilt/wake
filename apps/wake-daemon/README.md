@@ -40,6 +40,23 @@ On start, `serve`:
 5. listens on loopback: `GET /map`, `/file?path=`, `/diff?path=`, `/health`,
    `POST /hook`, and `ws://127.0.0.1:<port>/live`.
 
+## Transcript mode
+
+```sh
+bun run src/main.ts serve --repo /path/to/repo --transcript ~/.claude/projects/<slug>/<session>.jsonl
+```
+
+No hooks at all: the daemon tails that transcript every 500 ms with the same
+`buildSession` parser and emits every new event, not only assistant text.
+This is how `wake --live` watches a session that was started before Wake,
+or from another directory, without restarting it. A fresh edit is held back
+up to 4 s until its tool result carries the line range. The session is
+`running` while the file grows and `idle` after 30 s of quiet. Steering
+(fences, permission holds) needs hooks and is off in this mode.
+
+Files the watcher reports that git ignores (build output such as `dist/`)
+are not added to the map.
+
 ## What streams
 
 - `hello`, then `snapshot` (the last 5000 events of the primary session), then

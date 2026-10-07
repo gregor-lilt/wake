@@ -347,11 +347,17 @@ export class Autopilot {
       y1 = Math.max(y1, this.layout.cityRect[f * 4 + 1] + this.layout.cityRect[f * 4 + 3]);
     }
     if (!isFinite(x0)) {
+      // Nothing recent (a live snapshot is all backdated): frame the newest
+      // file, centre included. Fitting one file while centring on the
+      // centroid of three parked the camera on empty terrain between
+      // distant files at reading zoom.
       const f = last[last.length - 1].file;
       x0 = this.layout.cityRect[f * 4];
       y0 = this.layout.cityRect[f * 4 + 1];
       x1 = x0 + this.layout.cityRect[f * 4 + 2];
       y1 = y0 + this.layout.cityRect[f * 4 + 3];
+      cx = this.layout.cityCentroid[f * 2];
+      cy = this.layout.cityCentroid[f * 2 + 1];
     }
     const w = Math.max(x1 - x0, this.minExtent);
     const h = Math.max(y1 - y0, this.minExtent);

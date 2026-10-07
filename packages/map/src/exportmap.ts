@@ -187,11 +187,15 @@ export function buildFixture(doc: ExportDoc, cityColor: CityColor, buildingColor
     }
   }
 
+  // Looked up by id, not by index: a live daemon's document keeps ids stable,
+  // so a file created mid-session has an id past the symbols, not its index.
+  const byId = new Map<number, ExportNode>();
+  for (const n of nodes) byId.set(n.id, n);
   const depthOf = new Map<number, number>();
   const depth = (n: ExportNode): number => {
     const cached = depthOf.get(n.id);
     if (cached !== undefined) return cached;
-    const d = n.parent === null ? 1 : depth(nodes[n.parent]) + 1;
+    const d = n.parent === null ? 1 : depth(byId.get(n.parent)!) + 1;
     depthOf.set(n.id, d);
     return d;
   };

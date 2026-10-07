@@ -13,6 +13,8 @@
 //   2. The real transcript (transcript_path from the hook payload), tailed
 //      for assistant text, which no hook carries. Same parser, filtered to
 //      assistant `message` events, de-duplicated by (agent, time, text).
+//      In transcript mode (`serve --transcript`, no hooks at all) the tail is
+//      the only source and every event kind is emitted from it.
 //
 // Everything emitted is appended to `.wake/live/<sessionId>.jsonl` in the
 // target repository, one protocol frame per line.
@@ -57,6 +59,11 @@ export class SessionStore {
   private readonly opts: SessionStoreOptions;
   /** Hooks that name a tool, the signal that this is a working session. */
   toolHooks = 0;
+  /**
+   * Transcript mode: the tail emits every event, not just assistant text,
+   * because no hooks are coming. Set by `serve --transcript`.
+   */
+  tailAll = false;
 
   constructor(sessionId: string, transcriptPath: string | null, opts: SessionStoreOptions) {
     this.opts = opts;
@@ -120,7 +127,10 @@ export class SessionStore {
     return fresh.map((event) => this.emit(event, base + event.t));
   }
 
-  /** Re-read the real transcript if it grew; emit new assistant messages. */
+  /**
+   * Re-read the real transcript if it grew; emit new assistant messages, or
+   * in transcript mode every new event.
+   */
   tailTranscript(force = false): SessionEvent[] {
     if (this.transcriptPath === null) return [];
     let size: number;
@@ -140,11 +150,18 @@ export class SessionStore {
     }
     const base = Date.parse(parsed.session.startedAt);
     const out: SessionEvent[] = [];
+    const now = Date.now();
     for (const event of parsed.session.events) {
-      if (event.kind !== 'message' || event.role !== 'assistant') continue;
+      const isAssistantText = event.kind === 'message' && event.role === 'assistant';
+      if (!this.tailAll && !isAssistantText) continue;
       const ms = base + event.t;
-      const key = `${event.agentId ?? ''}|${ms}|${event.text ?? ''}`;
+      const key = isAssistantText
+        ? `${event.agentId ?? ''}|${ms}|${event.text ?? ''}`
+        : `${event.agentId ?? ''}|${ms}|${event.kind}|${event.title}`;
       if (this.seenMessages.has(key)) continue;
+      // An edit's line range comes from its tool result, a moment after the
+      // call. Hold a fresh edit back briefly so it is emitted once, complete.
+      if ((event.kind === 'edit' || event.kind === 'write') && event.lineStart === null && now - ms < 4000) continue;
       this.seenMessages.add(key);
       out.push(this.emit(event, ms));
     }

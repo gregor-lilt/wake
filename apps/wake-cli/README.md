@@ -9,6 +9,14 @@ Plays back the most recent Claude Code session that worked in this
 repository, on the map, in a browser tab. No hooks, no config, no daemon.
 About one second on a small repository once the app is built.
 
+```sh
+wake --live
+```
+
+Watches that session as it happens instead: the daemon tails the transcript
+(no hooks needed, so it works on a session that is already running) and the
+map follows every read, edit and command as Claude Code makes them.
+
 What it does:
 
 1. Finds the repository root (`git rev-parse --show-toplevel`).
@@ -27,6 +35,10 @@ What it does:
 | `--repo <path>` | another repository than the one around the cwd |
 | `--session <file>` | a specific transcript instead of the latest |
 | `--list` | the ten most recent sessions that worked here, with their first prompt |
+| `--live` | watch the session as it happens: the daemon (Bun) tails the transcript |
+| `--session-id <id>` | the session with that id, wherever it was started |
+| `--detach` | with `--live`: run in the background, print the URL, return. A second call for the same session reuses it, one for another session replaces it |
+| `--stop` | stop the background instance for this repository |
 | `--port <n>` | default 5300, the next free one if taken |
 | `--no-open` | print the URL, do not open a browser |
 

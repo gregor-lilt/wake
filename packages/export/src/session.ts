@@ -82,12 +82,15 @@ export function clip(raw: unknown, max: number): string {
 
 /**
  * What the user actually typed. Claude Code wraps slash commands and their
- * output in tags (`<command-name>`, `<local-command-stdout>`, a caveat record)
- * and injects `<system-reminder>` blocks: a slash command reads as the command
+ * output in tags (`<command-name>`, `<local-command-stdout>`, a caveat record),
+ * reports background tasks as `<task-notification>` records and injects
+ * `<system-reminder>` blocks: a slash command reads as the command
  * itself, its output and the caveat are not prompts, reminders are dropped.
  */
 export function promptText(raw: string): string {
   if (raw.includes('<local-command-caveat>') || raw.includes('<local-command-stdout>')) return '';
+  // Background-task completions arrive as user records but nobody typed them.
+  if (raw.trimStart().startsWith('<task-notification>')) return '';
   const name = /<command-name>([^<]*)<\/command-name>/.exec(raw);
   if (name) {
     const args = /<command-args>([^<]*)<\/command-args>/.exec(raw);
@@ -616,10 +619,20 @@ export function subagentTranscripts(
     });
 }
 
-/** First word of a shell command, basename only. */
+/**
+ * The program a shell command runs, basename only. Leading `VAR=value`
+ * assignments and `cd somewhere &&` are skipped, so `SP=/tmp/x && cd $SP &&
+ * node shot.mjs` is `node`, not the variable.
+ */
 function firstWord(command: unknown): string {
-  const first = typeof command === 'string' ? (command.trim().split(/\s+/)[0] ?? '') : '';
-  return first.replace(/^[^A-Za-z0-9_./-]+/, '').replace(/^.*\//, '').slice(0, 40);
+  if (typeof command !== 'string') return '';
+  for (const part of command.split(/&&|\|\||;|\n/)) {
+    const words = part.trim().split(/\s+/).filter((w) => w !== '' && !/^[A-Za-z_][A-Za-z0-9_]*=/.test(w));
+    const first = (words[0] ?? '').replace(/^[^A-Za-z0-9_./~-]+/, '');
+    if (first === '' || first === 'cd' || first === '(' ) continue;
+    return first.replace(/^.*\//, '').slice(0, 40);
+  }
+  return '';
 }
 
 /**
@@ -648,6 +661,10 @@ function titleOf(
       return pattern === '' ? 'Search' : `Search ${pattern}`;
     }
     case 'run': {
+      // Claude Code asks for a one-line description of every shell call: the
+      // agent's own words for what the command does read better than its text.
+      const description = clip(input?.['description'], 70);
+      if (description !== '') return description;
       const head = firstWord(input?.['command']);
       return head === '' ? 'Run' : `Run ${head}`;
     }

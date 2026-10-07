@@ -20,6 +20,13 @@ cd /any/repository && wake           # plays the latest Claude Code session ther
 No hooks and no daemon: `wake` reads the transcript Claude Code already wrote
 and opens the map in replay mode. See [apps/wake-cli](apps/wake-cli/README.md).
 
+From inside a Claude Code session, `/wake` opens the live map of that very
+session (`/wake replay`, `/wake stop`). Install the skill once:
+
+```
+ln -s "$PWD/skills/wake" ~/.claude/skills/wake
+```
+
 ## Running the app live
 
 The live app needs a daemon watching a repository, and a browser.
