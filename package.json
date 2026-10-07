@@ -1,0 +1,12 @@
+{
+  "name": "wake",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Wake: the map behind the agent",
+  "type": "module",
+  "workspaces": [
+    "packages/map",
+    "apps/spike-renderer",
+    "apps/wake"
+  ]
+}

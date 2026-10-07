@@ -30,6 +30,7 @@ import type { Repo } from './repo';
 import type { Layout, Rect } from './layout';
 import type { Theme } from './theme';
 import { CodeStore } from './code';
+import type { CodeSource } from './code';
 import {
   buildSchematic, buildAggregate, aggregateQuads, groupSizeOf, concatSoups, fillSoup,
   sheetOf, visibleRows, isNonCode, inkOf,
@@ -201,8 +202,8 @@ export class CodeView {
     private layout: Layout,
     private theme: Theme,
     opts: {
-      dataName: string | null;
-      diffRev: string;
+      /** null when there is nothing to read source from: the dev fixture. */
+      source: CodeSource | null;
       root: HTMLElement;
       onReady: () => void;
       /** bench override of the reading threshold */
@@ -214,11 +215,10 @@ export class CodeView {
     this.k = ROW_WORLD;
     this.maxZoom = maxZoomFor(this.k);
     this.readAtPx = opts.l3MinRowPx ?? ROW_PX_READ;
-    this.enabled = Boolean(opts.dataName && repo.filePath);
-    if (!this.enabled || !opts.dataName) return;
+    this.enabled = Boolean(opts.source && repo.filePath);
+    if (!this.enabled || !opts.source) return;
     this.store = new CodeStore(
-      opts.dataName,
-      opts.diffRev,
+      opts.source,
       theme.name,
       (f) => repo.filePath?.[f] ?? null,
       () => {
@@ -228,6 +228,25 @@ export class CodeView {
       }
     );
     this.pool = new OverlayPool(opts.root);
+  }
+
+  /**
+   * An `invalidate` frame: the file changed on disk, so its text, its diff and
+   * its tokens are refetched and every cached sheet of it is dropped.
+   */
+  invalidate(file: number): void {
+    this.measured.delete(file);
+    this.cache.delete(file);
+    this.aggCache.delete(file);
+    this.setKey = '';
+    this.dirty = true;
+    this.store?.invalidate(file);
+  }
+
+  /** Give up the overlay pool and the tokenizer worker. */
+  destroy(): void {
+    this.pool?.destroy();
+    this.store?.destroy();
   }
 
   setTheme(theme: Theme): void {

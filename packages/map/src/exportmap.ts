@@ -11,6 +11,7 @@
  */
 import type { Dir, Repo } from './repo';
 import { finishLayout } from './layout';
+import { capacityFor, DIR_HEADROOM_MIN, FILE_HEADROOM_MIN, SYM_HEADROOM_MIN } from './grow';
 import { CELL_WORLD, STUB_LINES, isFolded, tileCellsH, TILE_CELLS_W } from './lattice';
 import type { CityColor, BuildingColor, Layout, Rect } from './layout';
 import type { Session, SessionEvent, EventKind } from './session';
@@ -96,6 +97,45 @@ export interface ExportFixture {
   session: Session;
   meta: ExportMeta;
   worldSide: number;
+  /** Export node id to dense file index, the key every live delta arrives on. */
+  fileIndex: Map<number, number>;
+  /** Export node id to dense directory index. */
+  dirIndex: Map<number, number>;
+  /** Session start as epoch ms, so a live event can be given a wall clock. */
+  t0: number;
+}
+
+/**
+ * One export or wire event in the renderer's terms. `prevFile` is the last
+ * event that landed on the map, which is what makes two consecutive events a
+ * trip; live events are mapped one at a time through the same function the
+ * export walk uses, so a replayed session and a live one are the same data.
+ */
+export function mapSessionEvent(
+  e: ExportDoc['session']['events'][number],
+  fileIndex: Map<number, number>,
+  t0: number,
+  prevFile: number
+): SessionEvent {
+  const f = e.nodeId === null || e.nodeId === undefined ? -1 : (fileIndex.get(e.nodeId) ?? -1);
+  const from = f >= 0 && prevFile >= 0 && prevFile !== f ? prevFile : -1;
+  return {
+    t: e.t,
+    kind: e.kind,
+    file: f,
+    trip: 0,
+    from,
+    tool: e.tool,
+    summary: e.summary,
+    wallClock: new Date(t0 + e.t).toISOString(),
+    lineStart: e.lineStart ?? undefined,
+    lineEnd: e.lineEnd ?? undefined,
+    title: typeof e.title === 'string' && e.title.trim() ? e.title.trim() : undefined,
+    text: typeof e.text === 'string' && e.text.trim() ? e.text.trim() : undefined,
+    role: e.role === 'user' || e.role === 'assistant' ? e.role : undefined,
+    command: typeof e.command === 'string' && e.command.trim() ? e.command.trim() : undefined,
+    agentType: typeof e.agentType === 'string' && e.agentType.trim() ? e.agentType.trim() : undefined
+  };
 }
 
 export async function fetchExport(name: string): Promise<ExportDoc> {
@@ -186,13 +226,17 @@ export function buildFixture(doc: ExportDoc, cityColor: CityColor, buildingColor
 
   // ---- files --------------------------------------------------------------
   const F = fileNodes.length;
-  const fileDir = new Int32Array(F);
-  const fileSize = new Float32Array(F);
-  const fileLines = new Int32Array(F);
-  const fileFolded = new Uint8Array(F);
-  const fileRegion = new Uint8Array(F);
+  // Headroom, not a snug fit: the agent creates files during a session and a
+  // `node` frame for a new one appends into a free slot (src/grow.ts). Only
+  // running out of slots costs a reallocation.
+  const fileCap = capacityFor(F, FILE_HEADROOM_MIN);
+  const fileDir = new Int32Array(fileCap);
+  const fileSize = new Float32Array(fileCap);
+  const fileLines = new Int32Array(fileCap);
+  const fileFolded = new Uint8Array(fileCap);
+  const fileRegion = new Uint8Array(fileCap);
   const fileName: string[] = new Array(F);
-  const cityRect = new Float32Array(F * 4);
+  const cityRect = new Float32Array(fileCap * 4);
   let effTotal = 0;
   let foldedCount = 0;
   let stubCount = 0;
@@ -238,7 +282,8 @@ export function buildFixture(doc: ExportDoc, cityColor: CityColor, buildingColor
   // ---- directory rects ----------------------------------------------------
   // A directory's rect is the drawn region: the layout already keeps its gap
   // and its border gutter inside the footprint, so there is nothing to inset.
-  const dirRect = new Float32Array(dirs.length * 4);
+  const dirCap = capacityFor(dirs.length, DIR_HEADROOM_MIN);
+  const dirRect = new Float32Array(dirCap * 4);
   for (let i = 0; i < dirs.length; i++) {
     const r = rectOf.get(dirNodes[i].id) ?? [0, 0, 1, 1];
     dirRect[i * 4] = r[0] * CELL_WORLD;
@@ -264,19 +309,20 @@ export function buildFixture(doc: ExportDoc, cityColor: CityColor, buildingColor
     list.sort((a, b) => (a.lineStart ?? 0) - (b.lineStart ?? 0) || a.id - b.id);
     S += list.length;
   }
-  const fileSymStart = new Uint32Array(F + 1);
-  const symKind = new Uint8Array(S);
+  const symCap = capacityFor(S, SYM_HEADROOM_MIN);
+  const fileSymStart = new Uint32Array(fileCap + 1);
+  const symKind = new Uint8Array(symCap);
   // Source extents, which the schematic turns into class and function bands.
-  const symLineStart = new Int32Array(S);
-  const symLineEnd = new Int32Array(S);
+  const symLineStart = new Int32Array(symCap);
+  const symLineEnd = new Int32Array(symCap);
   // Names and the export's own kind string, for the sticky scope row and the
   // jump bar's scope crumbs (src/scope.ts).
   const symName: string[] = new Array(S);
   const symKindName: string[] = new Array(S);
   // v3: the definition's indentation column, and the enclosing symbol as a
   // dense local index. -1 for both where the export does not say.
-  const symCol = new Int32Array(S).fill(-1);
-  const symParent = new Int32Array(S).fill(-1);
+  const symCol = new Int32Array(symCap).fill(-1);
+  const symParent = new Int32Array(symCap).fill(-1);
   const symIndex = new Map<number, number>();
   let cursor = 0;
   for (let f = 0; f < F; f++) {
@@ -310,7 +356,7 @@ export function buildFixture(doc: ExportDoc, cityColor: CityColor, buildingColor
   const edgeDst = new Uint32Array(E);
   const edgeWeight = new Float32Array(E);
   const edgeCross = new Uint8Array(E);
-  const fileFanIn = new Uint16Array(F);
+  const fileFanIn = new Uint16Array(fileCap);
   for (let i = 0; i < E; i++) {
     const a = fileIndex.get(keep[i].from)!;
     const b = fileIndex.get(keep[i].to)!;
@@ -343,6 +389,9 @@ export function buildFixture(doc: ExportDoc, cityColor: CityColor, buildingColor
     symKindName,
     symCol,
     symParent,
+    fileCapacity: fileCap,
+    symCapacity: symCap,
+    dirCapacity: dirCap,
     // Repo-relative paths, the key the /file and /diff endpoints validate
     // against. Runtime only, never written anywhere.
     filePath: fileNodes.map((n) => n.path),
@@ -362,29 +411,13 @@ export function buildFixture(doc: ExportDoc, cityColor: CityColor, buildingColor
   let trip = 0;
   let mapped = 0;
   for (const e of doc.session.events) {
-    const f = e.nodeId === null ? -1 : (fileIndex.get(e.nodeId) ?? -1);
-    if (f >= 0) mapped++;
+    const ev = mapSessionEvent(e, fileIndex, t0, prevFile);
+    if (ev.file >= 0) mapped++;
     // Consecutive events that land on the map form a trip.
-    const from = f >= 0 && prevFile >= 0 && prevFile !== f ? prevFile : -1;
-    if (from >= 0) trip++;
-    events.push({
-      t: e.t,
-      kind: e.kind,
-      file: f,
-      trip,
-      from,
-      tool: e.tool,
-      summary: e.summary,
-      wallClock: new Date(t0 + e.t).toISOString(),
-      lineStart: e.lineStart ?? undefined,
-      lineEnd: e.lineEnd ?? undefined,
-      title: typeof e.title === 'string' && e.title.trim() ? e.title.trim() : undefined,
-      text: typeof e.text === 'string' && e.text.trim() ? e.text.trim() : undefined,
-      role: e.role === 'user' || e.role === 'assistant' ? e.role : undefined,
-      command: typeof e.command === 'string' && e.command.trim() ? e.command.trim() : undefined,
-      agentType: typeof e.agentType === 'string' && e.agentType.trim() ? e.agentType.trim() : undefined
-    });
-    if (f >= 0) prevFile = f;
+    if (ev.from >= 0) trip++;
+    ev.trip = trip;
+    events.push(ev);
+    if (ev.file >= 0) prevFile = ev.file;
   }
   let crossTrips = 0;
   for (const e of events) if (e.from >= 0 && fileRegion[e.from] !== fileRegion[e.file]) crossTrips++;
@@ -405,6 +438,9 @@ export function buildFixture(doc: ExportDoc, cityColor: CityColor, buildingColor
     layout,
     session,
     worldSide: Math.max(world.w, world.h),
+    fileIndex,
+    dirIndex,
+    t0,
     meta: {
       name: doc.repo.name,
       commit: doc.repo.commit.slice(0, 7),

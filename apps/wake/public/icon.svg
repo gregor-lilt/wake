@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1a2040"/><stop offset="1" stop-color="#0a0d1a"/>
+    </linearGradient>
+    <linearGradient id="wk" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#f4a742" stop-opacity="0"/>
+      <stop offset="0.55" stop-color="#f4a742" stop-opacity="0.75"/>
+      <stop offset="1" stop-color="#ffd27a"/>
+    </linearGradient>
+    <radialGradient id="glow"><stop offset="0" stop-color="#ffe3a8"/><stop offset="0.4" stop-color="#f4a742" stop-opacity="0.6"/><stop offset="1" stop-color="#f4a742" stop-opacity="0"/></radialGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="230" fill="url(#bg)"/>
+  <g fill="#ffffff" fill-opacity="0.05">
+    <rect x="120" y="140" width="200" height="130" rx="16"/><rect x="350" y="140" width="130" height="130" rx="16"/>
+    <rect x="510" y="140" width="220" height="90" rx="16"/><rect x="760" y="140" width="144" height="200" rx="16"/>
+    <rect x="120" y="300" width="130" height="200" rx="16"/><rect x="280" y="300" width="200" height="130" rx="16"/>
+    <rect x="510" y="260" width="120" height="240" rx="16"/><rect x="660" y="370" width="244" height="130" rx="16"/>
+    <rect x="120" y="530" width="360" height="110" rx="16"/><rect x="510" y="530" width="200" height="200" rx="16"/>
+    <rect x="740" y="530" width="164" height="110" rx="16"/><rect x="120" y="670" width="130" height="234" rx="16"/>
+    <rect x="280" y="670" width="200" height="234" rx="16"/><rect x="510" y="760" width="394" height="144" rx="16"/>
+    <rect x="740" y="670" width="164" height="60" rx="16"/>
+  </g>
+  <g fill="none" stroke="url(#wk)" stroke-linecap="round" stroke-width="30">
+    <path d="M 150 470 Q 460 440 740 300"/>
+    <path d="M 300 870 Q 520 640 740 300"/>
+  </g>
+  <g fill="none" stroke="#f4a742" stroke-linecap="round" stroke-width="14" stroke-opacity="0.35">
+    <path d="M 430 560 q 60 -40 110 -20"/><path d="M 330 690 q 60 -60 130 -40"/>
+  </g>
+  <circle cx="740" cy="300" r="150" fill="url(#glow)"/>
+  <circle cx="740" cy="300" r="46" fill="#ffe9bd"/>
+</svg>

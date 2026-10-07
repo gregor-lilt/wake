@@ -1,0 +1,101 @@
+/*
+ * The shell. Three rules only: the map fills what is left of the window, the
+ * terminal pane takes a column on the left when it is open, and the control
+ * cluster floats top right. Everything else on screen belongs to the map.
+ */
+#root, .shell { height: 100%; width: 100%; }
+.shell {
+  display: flex;
+  align-items: stretch;
+  background: var(--wake-bg, #0d1117);
+}
+.map-host { position: relative; flex: 1 1 auto; min-width: 0; height: 100%; }
+
+/* ---- terminal pane ------------------------------------------------------ */
+.term {
+  flex: 0 0 340px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-right: 1px solid rgba(127, 127, 127, .22);
+  background: rgba(0, 0, 0, .22);
+  font: 12px/1.5 -apple-system, "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+  color: #c8d0da;
+}
+.shell.light .term { background: rgba(255, 255, 255, .5); color: #3a4350; }
+.term-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(127, 127, 127, .22);
+}
+.term-title { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; opacity: .6; }
+.term-close {
+  margin-left: auto;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  opacity: .6;
+}
+.term-close:hover { opacity: 1; }
+.term-body { padding: 12px 12px 16px; opacity: .55; }
+.term-body p { margin: 0; max-width: 34ch; }
+
+/* ---- control cluster ---------------------------------------------------- */
+.cluster {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font: 11px/1 -apple-system, "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+}
+.cluster-repo {
+  opacity: .55;
+  padding-right: 4px;
+  max-width: 26ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #c8d0da;
+}
+.shell.light .cluster-repo { color: #47505c; }
+.cbtn {
+  border: 1px solid rgba(127, 127, 127, .3);
+  border-radius: 5px;
+  padding: 5px 9px;
+  background: rgba(23, 27, 33, .82);
+  color: #c8d0da;
+  cursor: pointer;
+  letter-spacing: .03em;
+}
+.shell.light .cbtn { background: rgba(251, 250, 247, .88); color: #47505c; }
+.cbtn:hover { border-color: rgba(127, 127, 127, .55); }
+.cbtn.on {
+  border-color: rgba(255, 176, 80, .7);
+  color: #ffc98a;
+  background: rgba(255, 176, 80, .14);
+}
+.shell.light .cbtn.on { color: #8a4b06; }
+
+/* ---- the one failure state --------------------------------------------- */
+.failure {
+  position: absolute;
+  inset: auto 0 40% 0;
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  font: 12px/1.6 -apple-system, "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+  color: #d9c0ba;
+  text-align: center;
+}
+.failure b { font-size: 14px; color: #ffb4a2; }
+.failure code { font-family: ui-monospace, monospace; }

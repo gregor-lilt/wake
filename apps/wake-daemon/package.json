@@ -1,0 +1,26 @@
+{
+  "name": "wake-daemon",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Wake live daemon: serves the map document, streams session events from Claude Code http hooks and the indexer over WebSocket (docs/protocol.md).",
+  "engines": {
+    "bun": ">=1.4.0",
+    "node": ">=23.6"
+  },
+  "scripts": {
+    "serve": "bun run src/main.ts serve",
+    "init": "bun run src/main.ts init",
+    "e2e": "bun run src/e2e.ts",
+    "serve:node": "node --experimental-strip-types --experimental-sqlite --no-warnings=ExperimentalWarning src/main.ts serve",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "ws": "8.21.3"
+  },
+  "devDependencies": {
+    "@types/node": "22.15.3",
+    "@types/ws": "8.18.1",
+    "typescript": "5.9.2"
+  }
+}

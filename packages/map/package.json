@@ -1,0 +1,29 @@
+{
+  "name": "@wake/map",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "The Wake map: a repository as a deck.gl OrthographicView, with an agent session playing over it",
+  "exports": {
+    ".": "./src/index.ts",
+    "./style.css": "./src/style.css",
+    "./splash.css": "./src/splash.css",
+    "./vite": "./vite/export-data.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@deck.gl/core": "9.3.11",
+    "@deck.gl/extensions": "9.3.11",
+    "@deck.gl/layers": "9.3.11",
+    "@shikijs/core": "4.4.3",
+    "@shikijs/engine-javascript": "4.4.3",
+    "@shikijs/langs": "4.4.3",
+    "@shikijs/themes": "4.4.3"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "vite": "7.3.6"
+  }
+}

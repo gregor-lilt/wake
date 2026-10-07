@@ -127,3 +127,54 @@ export class AutopilotCamera {
     return { x, y, zoom: z };
   }
 }
+
+/** Ease-out cubic: fast start, gentle landing (docs/design.md section 1). */
+export const easeOutCubic = (t: number): number => 1 - (1 - t) ** 3;
+
+/**
+ * A programmatic fly-to: a tween from one pose to another over a fixed
+ * duration, stepped from the same imperative loop the autopilot writes from.
+ *
+ * Owning the camera this way is deliberate. deck.gl 9.3's view-state
+ * transition does start for an OrthographicView, but every interpolated frame
+ * is rebuilt from the END props plus the lerped {target, zoom}, and the
+ * controller props carry zoomX/zoomY, which OrthographicState prefers over
+ * zoom ("zoom will always be ignored when zoomX and zoomY are specified"). So
+ * the transition runs for its full duration while the zoom sits at the target
+ * from the first frame. The autopilot's per-frame setProps would have cut a
+ * transition short anyway. One camera owner, one write path.
+ *
+ * The target moves linearly and the zoom moves in log space: deck.gl zoom is
+ * log2 of scale, so linear in zoom is exponential in scale, which is a
+ * constant relative zoom speed and no linear-in-scale rush at the end.
+ */
+export class Flight {
+  constructor(
+    readonly from: Pose,
+    readonly to: Pose,
+    readonly start: number,
+    readonly ms: number,
+    readonly easing: (t: number) => number = easeOutCubic
+  ) {}
+
+  /** Progress in [0, 1] at `now`. */
+  progress(now: number): number {
+    return this.ms <= 0 ? 1 : Math.min(1, Math.max(0, (now - this.start) / this.ms));
+  }
+
+  done(now: number): boolean {
+    return this.progress(now) >= 1;
+  }
+
+  /** The pose at `now`. At or past the end it is exactly `to`. */
+  at(now: number): Pose {
+    const p = this.progress(now);
+    if (p >= 1) return { ...this.to };
+    const e = this.easing(p);
+    return {
+      x: this.from.x + (this.to.x - this.from.x) * e,
+      y: this.from.y + (this.to.y - this.from.y) * e,
+      zoom: this.from.zoom + (this.to.zoom - this.from.zoom) * e
+    };
+  }
+}

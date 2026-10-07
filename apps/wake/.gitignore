@@ -1,0 +1,4 @@
+node_modules/
+dist/
+# every shot is of a real repository: real names, real paths, real source
+screenshots/

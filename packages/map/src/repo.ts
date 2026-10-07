@@ -74,6 +74,17 @@ export interface Repo {
   /** repo-relative path per file, only on the real-export path. */
   filePath?: string[];
 
+  /**
+   * Slots the file- and symbol-indexed arrays are allocated for, which is more
+   * than the counts above: a live session creates files, and a `node` frame for
+   * one appends into a free slot instead of rebuilding the document
+   * (src/grow.ts). Absent on the synthetic fixture, where the counts are the
+   * capacities and nothing grows.
+   */
+  fileCapacity?: number;
+  symCapacity?: number;
+  dirCapacity?: number;
+
   edgeCount: number;
   edgeSrc: Uint32Array;
   edgeDst: Uint32Array;

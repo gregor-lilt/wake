@@ -1,13 +1,11 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": [
-      "ES2022",
-      "DOM",
-      "DOM.Iterable"
-    ],
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "jsx": "preserve",
+    "jsxImportSource": "solid-js",
     "strict": true,
     "noUncheckedIndexedAccess": false,
     "noUnusedLocals": true,
@@ -21,18 +19,9 @@
     "types": [],
     "baseUrl": ".",
     "paths": {
-      "@wake/map": [
-        "../../packages/map/src/index.ts"
-      ],
-      "@wake/map/*": [
-        "../../packages/map/src/*"
-      ]
+      "@wake/map": ["../../packages/map/src/index.ts"],
+      "@wake/map/*": ["../../packages/map/src/*"]
     }
   },
-  "include": [
-    "src",
-    "vite.config.ts",
-    "../../packages/map/src",
-    "../../packages/map/vite"
-  ]
+  "include": ["src", "vite.config.ts"]
 }

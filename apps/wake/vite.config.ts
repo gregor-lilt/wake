@@ -1,4 +1,5 @@
 import { defineConfig } from 'vite';
+import solid from 'vite-plugin-solid';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { exportData } from '../../packages/map/vite/export-data';
@@ -8,7 +9,9 @@ const MAP = path.resolve(HERE, '../../packages/map');
 const WAKE = path.resolve(HERE, '../..');
 
 export default defineConfig({
-  plugins: [exportData()],
+  // `?data=<name>` is the no-daemon fallback, served by the same middleware
+  // the spike uses: the export itself plus /file and /diff from its repo.path.
+  plugins: [solid(), exportData()],
   resolve: {
     alias: [
       { find: '@wake/map/style.css', replacement: path.join(MAP, 'src/style.css') },
@@ -17,11 +20,11 @@ export default defineConfig({
     ]
   },
   server: {
-    port: 5199,
+    port: 5200,
     strictPort: true,
     fs: { allow: [HERE, MAP, path.join(WAKE, '.wake')] }
   },
-  preview: { port: 5199, strictPort: true },
+  preview: { port: 5200, strictPort: true },
   worker: { format: 'es' },
   build: { target: 'es2022', sourcemap: false }
 });

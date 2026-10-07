@@ -18,21 +18,10 @@
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
     "noEmit": true,
-    "types": [],
-    "baseUrl": ".",
-    "paths": {
-      "@wake/map": [
-        "../../packages/map/src/index.ts"
-      ],
-      "@wake/map/*": [
-        "../../packages/map/src/*"
-      ]
-    }
+    "types": []
   },
   "include": [
     "src",
-    "vite.config.ts",
-    "../../packages/map/src",
-    "../../packages/map/vite"
+    "vite"
   ]
 }

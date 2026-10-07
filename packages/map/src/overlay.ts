@@ -196,6 +196,13 @@ export class OverlayPool {
   mounts = 0;
   unmounts = 0;
 
+  /** Take the pool's root, and every mounted slot with it, off the page. */
+  destroy(): void {
+    this.slots.length = 0;
+    this.visible = 0;
+    this.root.remove();
+  }
+
   constructor(parent: HTMLElement) {
     this.root = document.createElement('div');
     this.root.className = 'wake-ov-root';

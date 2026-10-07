@@ -5,12 +5,17 @@ exists for a 50k-tile deck.gl scene. This is a throwaway fixture, not product
 code. It renders a synthetic repository as a geographic map with deck.gl 9
 `OrthographicView` on WebGL2 and measures frame times at four zoom levels.
 
+**The renderer now lives in `packages/map`.** Everything this README describes
+below moved there unchanged, and this app is a page that mounts it plus the
+scripted runs in `scripts/`, which are the map's regression suite and stay
+here. Where the text says `src/<module>.ts`, read `packages/map/src/<module>.ts`.
+Install from the repository root (`npm install`), not from this directory.
+
 ## Run it
 
 ```
-cd apps/spike-renderer
-npm install
-npm run dev            # http://localhost:5199
+npm install            # at the repository root, once
+npm run dev -w @wake/spike-renderer   # http://localhost:5199
 ```
 
 Other commands:
@@ -119,7 +124,7 @@ collapse it.
 | Scope | `src/scope.ts` | The enclosing class and function of a line: real containment from the export's symbol spans, with `parentId` for the breadcrumb, and an indentation heuristic as the fallback for a schema-2 export |
 | Labels | `src/labels.ts` | Two styles, both anchored to a rect: district names tracked and inset inside their own top-left corner, file names as captions above the sheet. Ranked once by structural importance (fan-in + size), each gets a minzoom, then placed per zoom bucket, fitted, and capped before it reaches the TextLayer |
 | Layers | `src/main.ts` | `PolygonLayer` for regions, `SolidPolygonLayer` (binary) for 50k cities and 200k buildings, three `PathLayer`s (binary) for trunk motorways, light motorways and local roads, `TextLayer` + `CollisionFilterExtension` for labels |
-| Camera | `src/main.ts` | deck.gl `OrthographicView` controller plus `LinearInterpolator` fly-to. `FlyToInterpolator` is geospatial only |
+| Camera | `src/main.ts`, `src/camera.ts` | deck.gl `OrthographicView` controller for gestures; fly-to is the app's own `Flight` tween (ease-out cubic, zoom in log space), stepped from the frame loop like the autopilot. deck.gl's viewState transition lands on its first frame for an OrthographicView (zoomX/zoomY on the end props win over the interpolated zoom), so the app owns the camera instead |
 | Real export loader | `src/exportmap.ts` | Fetches an export and presents it through the same `Repo` and `Layout` shapes as the synthetic fixture, so no renderer code branches on the source |
 | Simulated session | `src/session.ts` | 40 trips over 90 s, read A then edit B, 15% cross-region, 18% bursts of 5-8 edits in one directory, tool calls 0.5-3 s apart. Deterministic, loops |
 | Autopilot runtime | `src/autopilot.ts` | Emits events on the clock, keeps the 10 s touch window, animates one marker per trip along its road, keeps a decaying link volume per road |

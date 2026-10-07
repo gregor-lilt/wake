@@ -16,16 +16,11 @@
     "phase2": "node scripts/phase2.mjs",
     "phase5": "node scripts/phase5.mjs",
     "phase6": "node scripts/phase6.mjs",
-    "console": "node scripts/console.mjs"
+    "console": "node scripts/console.mjs",
+    "flight": "node scripts/flight.mjs"
   },
   "dependencies": {
-    "@deck.gl/core": "9.3.11",
-    "@deck.gl/extensions": "9.3.11",
-    "@deck.gl/layers": "9.3.11",
-    "@shikijs/core": "4.4.3",
-    "@shikijs/engine-javascript": "4.4.3",
-    "@shikijs/langs": "4.4.3",
-    "@shikijs/themes": "4.4.3"
+    "@wake/map": "file:../../packages/map"
   },
   "devDependencies": {
     "playwright": "1.62.1",

@@ -38,7 +38,7 @@
  *      the jump bar share one opaque ground
  *   j  prefers-reduced-motion: camera flights are instant, the unblur is a
  *      plain 120 ms fade with no blur, trip markers still move, arrival pulses
- *      hold one radius
+ *      hold one radius; and the same 900 ms fly-to glides on a normal page
  *   k  after the replay ends the agent card says "Session ended · N events",
  *      follow is disabled and no glow is alive on the map
  *
@@ -834,11 +834,12 @@ try {
       const vp = window.__deck.getViewports()[0];
       samples.push({
         t: now,
+        zoom: vp.zoom,
         dz: Math.abs(vp.zoom - target.zoom),
         opacity: ov && ov.style ? ov.style.opacity : null,
         filter: ov && ov.style ? ov.style.filter : null
       });
-      if (now < 700) requestAnimationFrame(tick);
+      if (now < 1100) requestAnimationFrame(tick);
       else res(samples);
     };
     requestAnimationFrame(() => requestAnimationFrame(tick));
@@ -852,16 +853,22 @@ try {
   await goto(q, { rowPx: 1.5, file: codeFile }, 800);
   const normal = await flight(q, codeFile);
   // Instant: the very first frame after the call is already at the target and
-  // no frame sits between the two poses. The same probe on the normal page is
-  // reported, not asserted: on this build a programmatic 900 ms fly-to also
-  // lands on its first frame (deck.gl's viewState transition does not run for
-  // it), which is a finding for the spike, not part of the reduced-motion rule.
+  // no frame sits between the two poses.
   const between = (s) => s.filter((x) => x.dz >= 0.01).length;
-  const na = normal.find((x) => x.dz < 0.01);
   ok(reduced.length > 0 && reduced[0].dz < 0.01 && between(reduced) === 0,
     `j the flight is instant under reduced motion (at the target from the first frame, ` +
-    `${reduced[0]?.t.toFixed(0)} ms, ${between(reduced)} in-between frames; normal page for reference: ` +
-    `${between(normal)} in-between frames, arrives at ${na ? `${na.t.toFixed(0)} ms` : '>700 ms'})`);
+    `${reduced[0]?.t.toFixed(0)} ms, ${between(reduced)} in-between frames)`);
+  // The same 900 ms flight on the normal page glides: the camera is stepped
+  // by the page's own loop (Flight in src/camera.ts), so the drawn zoom passes
+  // through distinct intermediate values and lands within 0.01 of the target
+  // (ease-out cubic gets within 0.01 of a 2.5 zoom-level move at about 760 ms).
+  const na = normal.find((x) => x.dz < 0.01);
+  const distinct = new Set(normal.filter((x) => x.dz >= 0.01).map((x) => x.zoom.toFixed(3))).size;
+  const landed = normal.length > 0 && normal[normal.length - 1].dz < 0.01;
+  ok(distinct >= 5 && landed && na && na.t > 400 && na.t < 1000,
+    `j the same flight glides on the normal page: ${distinct} distinct intermediate zooms over ` +
+    `${between(normal)} frames, within 0.01 of the target at ${na ? `${na.t.toFixed(0)} ms` : '>1100 ms'}, ` +
+    `landed ${landed}`);
   const blurred = reduced.filter((x) => x.filter && /blur\((0*\.?[0-9]+)px\)/.test(x.filter) &&
     parseFloat(x.filter.match(/blur\(([0-9.]+)px\)/)[1]) > 0.01);
   const fadeIn = reduced.filter((x) => x.opacity !== null);

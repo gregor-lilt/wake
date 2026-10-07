@@ -431,3 +431,25 @@ survives the edits above.
   subagent lines, growing with the replay and truncating on scrub. Click
   flies to the file, hover glows its sheet. 15 checks plus phase 6 green,
   120 fps.
+- 2026-09-03. Fly-to bug fixed. Root cause: deck.gl's transition ran, but the
+  orthographic controller's zoomX/zoomY props override the interpolated zoom
+  every frame, so the camera sat at the target from the first frame. The
+  camera is now owned by the app's frame loop: a Flight tween with ease-out
+  cubic, linear target, zoom in log space, cancelled by any gesture, instant
+  under reduced motion. Region buttons, jump-bar crumbs, console clicks and
+  deep links glide again.
+- 2026-09-03. M1 reached: the renderer moved into packages/map behind a
+  createMap handle, apps/wake is the Solid shell that loads the map document
+  from the daemon and streams deltas, apps/wake-daemon receives Claude Code
+  http hooks, tails the transcript for narration, runs the indexer sidecar
+  and incremental layout, and serves the live protocol. Verified end to end
+  against headless Claude Code sessions. Known gap being closed: files created
+  during a session must grow the map's arrays.
+- 2026-09-03. First live session on a real repository exposed two defects.
+  Hooks from a Claude Code session in another repository reached the daemon
+  (a stale settings file), so the daemon now ignores any hook whose cwd is
+  outside the served repository and passes it through untouched. And a live
+  edit never marked its file's diff as landed unless autopilot was on, because
+  event bookkeeping lived inside the camera step. Events are now consumed
+  regardless of the toggle, only the camera part is gated. Rule: what the
+  agent did must land on the map whether or not the camera follows.

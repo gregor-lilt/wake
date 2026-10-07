@@ -8,3 +8,5 @@ target/
 packages/layout/out/
 apps/spike-hooks/events.jsonl
 apps/spike-hooks/fences.json
+# every one of these renders a real repository: names, paths, source
+apps/wake/screenshots/

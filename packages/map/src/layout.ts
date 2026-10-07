@@ -269,16 +269,22 @@ export function finishLayout(
   cityColor: CityColor,
   buildingColor: BuildingColor
 ): Layout {
-  const dirCentroid = new Float32Array(repo.dirs.length * 2);
+  // Capacity, not count: the arrays carry headroom so a file created during a
+  // live session lands in a free slot (src/grow.ts). Everything below is
+  // written for the first `fileCount` slots and drawn for exactly that many.
+  const dirCap = Math.max(repo.dirs.length, repo.dirCapacity ?? 0, dirRect.length >> 2);
+  const fileCap = Math.max(repo.fileCount, repo.fileCapacity ?? 0);
+  const symCap = Math.max(repo.symCount, repo.symCapacity ?? 0);
+  const dirCentroid = new Float32Array(dirCap * 2);
   for (let i = 0; i < repo.dirs.length; i++) {
     dirCentroid[i * 2] = dirRect[i * 4] + dirRect[i * 4 + 2] / 2;
     dirCentroid[i * 2 + 1] = dirRect[i * 4 + 1] + dirRect[i * 4 + 3] / 2;
   }
   const n = repo.fileCount;
-  const cityCentroid = new Float32Array(n * 2);
-  const cityPos = new Float32Array(n * 8);
-  const cityStart = new Uint32Array(n + 1);
-  const cityCol = new Uint8Array(n * 16);
+  const cityCentroid = new Float32Array(fileCap * 2);
+  const cityPos = new Float32Array(fileCap * 8);
+  const cityStart = new Uint32Array(fileCap + 1);
+  const cityCol = new Uint8Array(fileCap * 16);
   let cityArea = 0;
   // Pack the city quads in file order so the binary buffers stay contiguous.
   for (let f = 0; f < n; f++) {
@@ -291,7 +297,6 @@ export function finishLayout(
     cityPos[o + 2] = x + w; cityPos[o + 3] = y;
     cityPos[o + 4] = x + w; cityPos[o + 5] = y + h;
     cityPos[o + 6] = x; cityPos[o + 7] = y + h;
-    cityStart[f] = f * 4;
     cityCentroid[f * 2] = x + w / 2;
     cityCentroid[f * 2 + 1] = y + h / 2;
     cityArea += w * h;
@@ -304,13 +309,15 @@ export function finishLayout(
       cityCol[c] = r; cityCol[c + 1] = g; cityCol[c + 2] = b; cityCol[c + 3] = a;
     }
   }
-  cityStart[n] = n * 4;
+  // Every slot's start index, free ones included: an append then only has to
+  // write its quad and raise the count.
+  for (let f = 0; f <= fileCap; f++) cityStart[f] = f * 4;
 
   // ---- buildings ----------------------------------------------------------
   const bCount = repo.symCount;
-  const bPos = new Float32Array(bCount * 8);
-  const bStart = new Uint32Array(bCount + 1);
-  const bCol = new Uint8Array(bCount * 16);
+  const bPos = new Float32Array(symCap * 8);
+  const bStart = new Uint32Array(symCap + 1);
+  const bCol = new Uint8Array(symCap * 16);
   for (let f = 0; f < n; f++) {
     const s0 = repo.fileSymStart[f];
     const s1 = repo.fileSymStart[f + 1];
@@ -337,7 +344,6 @@ export function finishLayout(
       bPos[o + 2] = bx + fw; bPos[o + 3] = by;
       bPos[o + 4] = bx + fw; bPos[o + 5] = by + fh;
       bPos[o + 6] = bx; bPos[o + 7] = by + fh;
-      bStart[s] = s * 4;
       const [r, g, b] = buildingColor(repo.symKind[s], region);
       for (let v = 0; v < 4; v++) {
         const c = s * 16 + v * 4;
@@ -345,7 +351,7 @@ export function finishLayout(
       }
     }
   }
-  bStart[bCount] = bCount * 4;
+  for (let s = 0; s <= symCap; s++) bStart[s] = s * 4;
 
   let regionArea = 0;
   for (const id of repo.regions) regionArea += dirRect[id * 4 + 2] * dirRect[id * 4 + 3];
@@ -372,4 +378,79 @@ export function finishLayout(
     fillRatio: cityArea / Math.max(regionArea, 1),
     districtCoverage: cov.length > 0 ? cov[Math.floor(cov.length / 2)] : 0
   };
+}
+
+/**
+ * Move one file's tile after a live `node` delta, rewriting exactly the slices
+ * of the baked soups that belong to it: the quad, the centroid and the symbol
+ * boxes inside it. The same arithmetic finishLayout does, for one file.
+ */
+export function moveFileRect(
+  repo: Repo,
+  layout: Layout,
+  f: number,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  cityColor: CityColor,
+  buildingColor: BuildingColor
+): void {
+  layout.cityRect[f * 4] = x;
+  layout.cityRect[f * 4 + 1] = y;
+  layout.cityRect[f * 4 + 2] = w;
+  layout.cityRect[f * 4 + 3] = h;
+  const pos = layout.cities.positions;
+  const o = f * 8;
+  pos[o] = x; pos[o + 1] = y;
+  pos[o + 2] = x + w; pos[o + 3] = y;
+  pos[o + 4] = x + w; pos[o + 5] = y + h;
+  pos[o + 6] = x; pos[o + 7] = y + h;
+  layout.cityCentroid[f * 2] = x + w / 2;
+  layout.cityCentroid[f * 2 + 1] = y + h / 2;
+  const [cr, cg, cb] = cityColor(repo.fileRegion[f], sizeNorm(repo.fileSize[f]));
+  const a = repo.fileLines[f] < STUB_LINES ? Math.round(255 * STUB_ALPHA) : 255;
+  const cc = layout.cities.colors;
+  for (let v = 0; v < 4; v++) {
+    const c = f * 16 + v * 4;
+    cc[c] = cr; cc[c + 1] = cg; cc[c + 2] = cb; cc[c + 3] = a;
+  }
+
+  const s0 = repo.fileSymStart[f];
+  const s1 = repo.fileSymStart[f + 1];
+  const k = s1 - s0;
+  if (k <= 0) return;
+  const cols = Math.max(1, Math.round(Math.sqrt((k * w) / Math.max(h, 1e-6))));
+  const bw = w / cols;
+  const bh = h / Math.ceil(k / cols);
+  const fw = bw * 0.62;
+  const fh = bh * 0.62;
+  const region = repo.fileRegion[f];
+  const bPos = layout.buildings.positions;
+  const bCol = layout.buildings.colors;
+  for (let i = 0; i < k; i++) {
+    const s = s0 + i;
+    const bx = x + (i % cols) * bw + (bw - fw) / 2;
+    const by = y + Math.floor(i / cols) * bh + (bh - fh) / 2;
+    const p = s * 8;
+    bPos[p] = bx; bPos[p + 1] = by;
+    bPos[p + 2] = bx + fw; bPos[p + 3] = by;
+    bPos[p + 4] = bx + fw; bPos[p + 5] = by + fh;
+    bPos[p + 6] = bx; bPos[p + 7] = by + fh;
+    const [r, g, b] = buildingColor(repo.symKind[s], region);
+    for (let v = 0; v < 4; v++) {
+      const c = s * 16 + v * 4;
+      bCol[c] = r; bCol[c + 1] = g; bCol[c + 2] = b; bCol[c + 3] = 255;
+    }
+  }
+}
+
+/** Move one district after a live `node` delta of kind "dir". */
+export function moveDirRect(layout: Layout, id: number, x: number, y: number, w: number, h: number): void {
+  layout.dirRect[id * 4] = x;
+  layout.dirRect[id * 4 + 1] = y;
+  layout.dirRect[id * 4 + 2] = w;
+  layout.dirRect[id * 4 + 3] = h;
+  layout.dirCentroid[id * 2] = x + w / 2;
+  layout.dirCentroid[id * 2 + 1] = y + h / 2;
 }

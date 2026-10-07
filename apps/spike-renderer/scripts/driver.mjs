@@ -29,7 +29,13 @@ export async function startServer() {
   if (process.env.WAKE_NO_BUILD !== '1' || !existsSync(path.join(ROOT, 'dist', 'index.html'))) {
     await run('npm', ['run', 'build']);
   }
-  const bin = path.join(ROOT, 'node_modules', 'vite', 'bin', 'vite.js');
+  // npm workspaces hoist vite to the repository root; a standalone install
+  // keeps it here. Take whichever exists.
+  const bin = [
+    path.join(ROOT, 'node_modules', 'vite', 'bin', 'vite.js'),
+    path.resolve(ROOT, '../../node_modules/vite/bin/vite.js')
+  ].find((p) => existsSync(p));
+  if (!bin) throw new Error('vite is not installed: run npm install at the repository root');
   const proc = spawn(process.execPath, [bin, 'preview', '--port', String(PORT), '--strictPort'], {
     cwd: ROOT,
     stdio: ['ignore', 'pipe', 'pipe'],

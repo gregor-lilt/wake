@@ -64,6 +64,18 @@ export interface AgentConsoleHandles {
   /** Per frame is fine: every write is diffed. */
   setHeader(h: ConsoleHeader): void;
   toggleExpanded(force?: boolean): void;
+  /**
+   * A word about the connection behind the console, or null for none. The
+   * shell owns the socket, so it owns this: "daemon offline" while it is
+   * reconnecting, nothing while the frames are arriving.
+   */
+  setStatus(text: string | null): void;
+  /**
+   * Scroll one line into the window. The log is virtualized, so a line that is
+   * scrolled away is not in the DOM at all: this is what a pointer does before
+   * it can click an older line, and what the test hook does for it.
+   */
+  reveal(i: number): void;
   readonly expanded: boolean;
   /** Test hook: what the log is showing. */
   probe(): ConsoleProbe;
@@ -175,6 +187,7 @@ export function buildAgentConsole(
     <div class="cx-head">
       <span class="cx-action" id="ac-action">—</span>
       <i class="cx-time" id="ac-time"></i>
+      <span class="cx-offline" id="ac-offline" hidden></span>
       <span class="cx-chip" id="ac-chip">off</span>
       <button class="cx-follow" id="ac-follow" title="follow the agent">follow</button>
       <button class="cx-chev" id="ac-chev" title="expand the log (l)" aria-expanded="false">▴</button>
@@ -185,6 +198,7 @@ export function buildAgentConsole(
   const action = el('ac-action');
   const time = el('ac-time');
   const chip = el('ac-chip');
+  const offline = el('ac-offline');
   const follow = el('ac-follow') as HTMLButtonElement;
   const chev = el('ac-chev') as HTMLButtonElement;
   const log = el('ac-log');
@@ -351,6 +365,17 @@ export function buildAgentConsole(
       chip.textContent = h.camState;
       chip.classList.toggle('live', h.camState === 'following');
       chip.classList.toggle('manual', h.camState === 'manual');
+    },
+    setStatus(text) {
+      offline.hidden = !text;
+      offline.textContent = text ?? '';
+    },
+    reveal(i) {
+      if (lines.length === 0) return;
+      const at = Math.max(0, Math.min(i, lines.length - 1));
+      following = false;
+      log.scrollTop = tops[at];
+      render();
     },
     toggleExpanded(force) {
       const next = force ?? !expanded;

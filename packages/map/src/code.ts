@@ -103,6 +103,49 @@ export function warmTokenWorker(theme: 'dark' | 'light'): Promise<number> {
   });
 }
 
+/**
+ * Where a file's current text and its diff against HEAD come from. The static
+ * export path reads them from the dev server's export middleware; a daemon
+ * serves the same two endpoints without the `data` parameter. Everything else
+ * in the code view is the same either way.
+ */
+export interface CodeSource {
+  text(path: string): Promise<string>;
+  diff(path: string): Promise<string>;
+}
+
+/** The `?data=<name>` source: the export middleware of vite/export-data.ts. */
+export function exportSource(dataName: string, diffRev = ''): CodeSource {
+  const q = (path: string) => `data=${encodeURIComponent(dataName)}&path=${encodeURIComponent(path)}`;
+  return {
+    async text(path) {
+      const res = await fetch(`/file?${q(path)}`);
+      if (!res.ok) throw new Error(`file ${res.status}`);
+      return res.text();
+    },
+    async diff(path) {
+      const res = await fetch(`/diff?${q(path)}${diffRev ? `&rev=${encodeURIComponent(diffRev)}` : ''}`);
+      return res.ok ? res.text() : '';
+    }
+  };
+}
+
+/** A daemon serving docs/protocol.md's `/file` and `/diff` at `base`. */
+export function daemonSource(base: string): CodeSource {
+  const url = (kind: string, path: string) => `${base.replace(/\/$/, '')}/${kind}?path=${encodeURIComponent(path)}`;
+  return {
+    async text(path) {
+      const res = await fetch(url('file', path));
+      if (!res.ok) throw new Error(`file ${res.status}`);
+      return res.text();
+    },
+    async diff(path) {
+      const res = await fetch(url('diff', path)).catch(() => null);
+      return res && res.ok ? res.text() : '';
+    }
+  };
+}
+
 export class CodeStore {
   private worker: Worker;
   private pending = new Map<number, (r: TokenReply) => void>();
@@ -120,8 +163,7 @@ export class CodeStore {
   stats = { fetched: 0, tokenized: 0, tokenMs: 0, failed: 0 };
 
   constructor(
-    private dataName: string,
-    private diffRev: string,
+    private source: CodeSource,
     theme: 'dark' | 'light',
     private pathOf: (file: number) => string | null,
     private onReady: (file: number) => void
@@ -135,6 +177,26 @@ export class CodeStore {
       this.pending.delete(ev.data.id);
       if (done) done(ev.data);
     };
+  }
+
+  /**
+   * A file changed on disk (an `invalidate` frame): drop its text, its diff
+   * and its tokens and fetch it again at the priority it already had.
+   */
+  invalidate(file: number): void {
+    const had = this.ready.has(file) || this.text.has(file);
+    this.text.delete(file);
+    this.diffs.delete(file);
+    this.ready.delete(file);
+    this.failed.delete(file);
+    if (had) this.request(file, 1);
+  }
+
+  /** Stop the tokenizer worker. */
+  destroy(): void {
+    this.pending.clear();
+    this.queue.length = 0;
+    this.worker.terminate();
   }
 
   setTheme(theme: 'dark' | 'light'): void {
@@ -227,15 +289,10 @@ export class CodeStore {
     try {
       let text = this.text.get(file);
       if (text === undefined) {
-        const q = `data=${encodeURIComponent(this.dataName)}&path=${encodeURIComponent(path)}`;
-        const [tRes, dRes] = await Promise.all([
-          fetch(`/file?${q}`),
-          fetch(`/diff?${q}${this.diffRev ? `&rev=${encodeURIComponent(this.diffRev)}` : ''}`)
-        ]);
-        if (!tRes.ok) throw new Error(`file ${tRes.status}`);
-        text = await tRes.text();
+        const [body, diff] = await Promise.all([this.source.text(path), this.source.diff(path)]);
+        text = body;
         this.text.set(file, text);
-        this.diffs.set(file, dRes.ok ? parseUnifiedDiff(await dRes.text()) : emptyDiff());
+        this.diffs.set(file, diff ? parseUnifiedDiff(diff) : emptyDiff());
         this.stats.fetched++;
       }
       const lang = langOf(path);

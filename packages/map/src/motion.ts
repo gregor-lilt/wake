@@ -31,12 +31,27 @@ const mq = typeof window !== 'undefined' && typeof window.matchMedia === 'functi
   : null;
 
 let reduced = mq ? mq.matches : false;
+/** A shell's explicit choice, which outranks the media query while it is set. */
+let forced: boolean | null = null;
 const listeners = new Set<(reduced: boolean) => void>();
 
 mq?.addEventListener('change', (e) => {
+  if (forced !== null) return;
   reduced = e.matches;
   for (const fn of listeners) fn(reduced);
 });
+
+/**
+ * Override the system preference. `undefined` hands control back to the media
+ * query, which is what a shell without a motion setting of its own should do.
+ */
+export function setReducedMotion(value: boolean | undefined): void {
+  forced = value === undefined ? null : value;
+  const next = forced === null ? (mq ? mq.matches : false) : forced;
+  if (next === reduced) return;
+  reduced = next;
+  for (const fn of listeners) fn(reduced);
+}
 
 /** True while the user asks for reduced motion. */
 export const reducedMotion = (): boolean => reduced;

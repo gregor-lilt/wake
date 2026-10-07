@@ -52,6 +52,14 @@ export class Autopilot {
    * (docs/design.md section 10).
    */
   loop = true;
+  /**
+   * Live mode: a daemon appends events as they happen, so the replay clock
+   * does not advance the cursor and the session never starts over. Everything
+   * downstream (touches, trips, the console) is the same either way.
+   */
+  live = false;
+  /** In live mode the daemon says when the session is over, not the cursor. */
+  liveEnded = false;
   lastEvent: SessionEvent | null = null;
   touches: Touch[] = [];
   trips = new Map<string, HotTrip>();
@@ -77,6 +85,7 @@ export class Autopilot {
 
   /** The replay has run out of events and will not start over. */
   get ended(): boolean {
+    if (this.live) return this.liveEnded;
     return !this.loop && this.cursor >= this.session.events.length;
   }
 
@@ -188,9 +197,28 @@ export class Autopilot {
     return now - this.startedAt - this.pausedFor - held;
   }
 
+  /**
+   * A live event just arrived. It is applied at once rather than waiting for
+   * a cadence tick, because in live mode "now" is the session's own clock.
+   */
+  appendLive(e: SessionEvent, now: number): void {
+    const atEnd = this.cursor >= this.session.events.length;
+    this.session.events.push(e);
+    this.session.duration = Math.max(this.session.duration, e.t);
+    if (!atEnd) return;
+    if (e.from >= 0) this.session.trips++;
+    this.apply(e, now);
+    this.cursor = this.session.events.length;
+    this.endedAt = -1;
+  }
+
   /** Emit every event that is due. Loops the session. */
   tick(now: number): void {
     if (this.paused) return;
+    if (this.live) {
+      this.retire(now);
+      return;
+    }
     const events = this.session.events;
     if (this.session.mode === 'cadence') {
       if (this.cursor >= events.length) {
