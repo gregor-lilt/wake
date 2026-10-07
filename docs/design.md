@@ -475,3 +475,18 @@ survives the edits above.
   crashed on `nodes[id]`, the renderer now looks nodes up by id. Build output
   git ignores no longer appears as new land. Run lines now read as the
   agent's own description of the command.
+- 2026-10-07. Review while watching live: show the diff of every changed
+  file, and show source when the camera is on a file. Decided and shipped:
+  diffs are against the session baseline (HEAD when the session started),
+  not HEAD, because an agent that commits as it goes erased its own work
+  from the map. Live mode treats every diff on disk as landed, whatever tool
+  made it (most changes went through the shell, never an Edit event). A
+  changes list top right (collapsed to one line, +/- totals) lists every
+  changed file and flies to its first change at reading zoom, taking the
+  wheel. At the terrain band each changed tile carries a strip on its right
+  edge in the diff colour. Every event that lands on a file now gives the
+  reading-zoom close-up edits had (the read range, else the first change,
+  else the top), held until the next file event instead of 7 s. Live events
+  never passed through the replay clock, so agent file, applied diffs and
+  close-ups were missing live: one landEvent now serves both paths.
+

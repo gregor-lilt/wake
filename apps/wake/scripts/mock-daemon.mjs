@@ -195,6 +195,14 @@ const server = createServer((req, res) => {
     send(res, 200, 'application/json', JSON.stringify(payload));
     return;
   }
+  if (url.pathname === '/changes') {
+    // Three files of the document, in path order, as the daemon reports
+    // files that differ from the session baseline.
+    const picked = [...files].sort().slice(0, 3);
+    const list = picked.map((path, i) => ({ path, added: 10 * (i + 1), removed: i, created: i === 0 }));
+    send(res, 200, 'application/json', JSON.stringify({ base: 'mock', files: list }));
+    return;
+  }
   if (url.pathname === '/script') {
     send(res, 200, 'application/json', JSON.stringify({ script: SCRIPT || null, at: SCRIPT_AT, plan, fired: scriptFired }));
     return;

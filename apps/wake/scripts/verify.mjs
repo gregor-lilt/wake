@@ -203,6 +203,11 @@ const main = async () => {
     await boot.page.screenshot({ path: path.join(OUT, '02-live.png') });
     const liveTimeline = await boot.page.evaluate(() => document.getElementById('timeline')?.hidden ?? true);
     ok(liveTimeline, 'c live mode has no replay timeline: the daemon is the clock');
+    const changes = await boot.page.evaluate(() => {
+      const el = document.getElementById('changes');
+      return { hidden: el?.hidden ?? true, rows: el?.querySelectorAll('li').length ?? 0, head: el?.querySelector('.ch-count')?.textContent ?? '' };
+    });
+    ok(!changes.hidden && changes.rows === 3, `c the changes list shows the daemon's changed files (${changes.head})`);
 
     // ---- d: autopilot follows an edit into the reading band ----------------
     // The camera is the replay's while autopilot is on; wait for it to land on

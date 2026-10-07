@@ -89,6 +89,12 @@ export interface UpdateParams {
   /** a pointer is down on the canvas: hide the overlays at once, no blur out */
   dragging: boolean;
   applied: Map<number, number>;
+  /**
+   * Live mode: the working tree on disk is the present, so every file's diff
+   * has already landed, whether or not an edit event was seen for it (a
+   * change made through the shell has none). Replay keeps the reveal.
+   */
+  diffsLanded?: boolean;
 }
 
 export interface CodeViewState {
@@ -782,7 +788,7 @@ export class CodeView {
       const code = this.store.get(f);
       const s = this.sheets.get(f);
       if (!code || !s) continue;
-      const at = p.applied.get(f);
+      const at = p.applied.get(f) ?? (p.diffsLanded ? -Infinity : undefined);
       const drawn = this.drawnRows(f, s);
       // The gutter takes the sheet's left margin plus what the line count
       // needs, and the 96-column text box moves right by exactly that, so it

@@ -6,7 +6,7 @@
  * and reports whether the socket is up, which is all the shell needs to feed
  * the map handle and put a word in the console header.
  */
-import type { ServerMessage } from '@wake/map';
+import type { Change, ServerMessage } from '@wake/map';
 import type { ExportDoc } from '@wake/map';
 
 export interface Health {
@@ -51,6 +51,16 @@ export class Daemon {
     const res = await fetch(`${this.base}/map`, { signal });
     if (!res.ok) throw new Error(`map ${res.status}`);
     return (await res.json()) as ExportDoc;
+  }
+
+  /**
+   * `GET /changes`: every file that differs from the session's baseline, with
+   * line counts. An older daemon without the endpoint answers 404: no list.
+   */
+  async changes(signal?: AbortSignal): Promise<Change[]> {
+    const res = await fetch(`${this.base}/changes`, { signal });
+    if (!res.ok) return [];
+    return ((await res.json()) as { files: Change[] }).files;
   }
 
   /** Open `/live` and keep it open. Safe to call once. */

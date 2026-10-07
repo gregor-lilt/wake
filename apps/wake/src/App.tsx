@@ -52,6 +52,16 @@ export function App() {
   let mapEl!: HTMLDivElement;
   let map: MapHandle | null = null;
   let daemon: Daemon | null = null;
+  let changesTimer = 0;
+  let changesDebounce = 0;
+
+  /** Refetch /changes, debounced: a watch batch arrives as a burst of frames. */
+  function refreshChanges(delayMs = 800): void {
+    window.clearTimeout(changesDebounce);
+    changesDebounce = window.setTimeout(() => {
+      void daemon?.changes().then((list) => map?.setChanges(list)).catch(() => {});
+    }, delayMs);
+  }
 
   onMount(() => {
     const splash = new Splash({ enabled: qs.get('nosplash') !== '1', steps: STAGES });
@@ -84,6 +94,8 @@ export function App() {
           onMessage: (msg: ServerMessage) => {
             if (msg.type === 'hello') setRepoName(msg.repo.name);
             map?.applyDelta(msg);
+            // A file changed on disk: the changes list is due a refresh.
+            if (msg.type === 'invalidate' || msg.type === 'node') refreshChanges();
           },
           onConnection: (state) => {
             setConnection(state);
@@ -104,6 +116,10 @@ export function App() {
         // Only now: the snapshot and every event after it go into a map that
         // already has the document they refer to.
         daemon.connect();
+        refreshChanges(0);
+        // Commits and branch moves change nothing on disk, so a slow poll
+        // covers what no frame announces.
+        changesTimer = window.setInterval(() => refreshChanges(0), 15_000);
       } catch (err) {
         setFailure(String(err instanceof Error ? err.message : err));
         await splash.finish();
@@ -112,6 +128,8 @@ export function App() {
   });
 
   onCleanup(() => {
+    window.clearInterval(changesTimer);
+    window.clearTimeout(changesDebounce);
     daemon?.close();
     map?.destroy();
   });

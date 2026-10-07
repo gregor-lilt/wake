@@ -19,6 +19,7 @@ import type { ServerMessage } from './protocol';
 import { fetchExport } from './exportmap';
 import { generateRepo } from './repo';
 import { Splash } from './splash';
+import type { Change } from './changes';
 
 export type { MapOptions, MountedMap, MapStats, FileInfo, FlyTarget };
 export type { ExportDoc, ExportNode, ExportMeta } from './exportmap';
@@ -28,6 +29,7 @@ export type {
   WireEvent, WireEdge, SessionState
 } from './protocol';
 export type { ThemeName, Theme } from './theme';
+export type { Change } from './changes';
 export type { SessionEvent, EventKind } from './session';
 export type { CodeSource } from './code';
 export { exportSource, daemonSource } from './code';
@@ -54,6 +56,8 @@ export interface MapHandle {
   setAutopilot(on: boolean): void;
   setFollow(): void;
   setTheme(theme: ThemeNameArg): void;
+  /** Every file that differs from the session's baseline (the daemon's /changes). */
+  setChanges(changes: Change[]): void;
   /** A word about the connection behind the console, or null for none. */
   setStatus(text: string | null): void;
   /** Jump the replay to an event index. */
@@ -79,6 +83,8 @@ export function createMap(container: HTMLElement, options: MapOptions = {}): Map
   let dead = false;
   /** Connection word set before the document was in, applied on mount. */
   let status: string | null = null;
+  /** The changes list set before the document was in, applied on mount. */
+  let changes: Change[] | null = null;
   /** Frames that arrived while the document was still loading. */
   const queued: ServerMessage[] = [];
 
@@ -89,6 +95,7 @@ export function createMap(container: HTMLElement, options: MapOptions = {}): Map
         if (dead) { m.destroy(); return; }
         inner = m;
         if (status !== null) m.setStatus(status);
+        if (changes !== null) m.setChanges(changes);
         for (const msg of queued) m.applyDelta(msg);
         queued.length = 0;
       });
@@ -104,6 +111,10 @@ export function createMap(container: HTMLElement, options: MapOptions = {}): Map
     setAutopilot: (on) => inner?.setAutopilot(on),
     setFollow: () => inner?.setFollow(),
     setTheme: (theme) => inner?.setTheme(theme),
+    setChanges: (list) => {
+      changes = list;
+      inner?.setChanges(list);
+    },
     setStatus: (text) => { status = text; inner?.setStatus(text); },
     scrub: (index) => inner?.scrub(index),
     fileOf: (path) => inner?.fileOf(path) ?? -1,

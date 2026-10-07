@@ -12,13 +12,12 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
-import { basename, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { HookHandler, type HookPayload } from './hooks.ts';
 import { defaultDbPath, ensureIndexerBuilt, indexOnce, startWatch } from './indexer.ts';
 import { initRepo } from './init.ts';
 import { LiveMap } from './mapdoc.ts';
 import { PROTOCOL_VERSION, type ClientMessage, type LoggedMessage, type ServerMessage } from './protocol.ts';
-import { runCapture } from './runtime.ts';
 import { startServer, type WsClient } from './server.ts';
 import { SessionManager } from './session.ts';
 
@@ -188,6 +187,22 @@ async function serve(args: Args): Promise<void> {
   const index = map.readIndexNow();
   say(`index            ${index.symbols} symbol nodes, ${index.added.length} import edges from ${dbPath}`);
 
+  // The session's baseline: the commit HEAD pointed at when the session
+  // started, from the reflog. Diffs and /changes are against it, so the map
+  // shows everything this session changed, committed or not.
+  let baseKey = '';
+  let baseSha = 'HEAD';
+  const sessionBase = (): string => {
+    const startedAt = sessions.primary?.exportSession().startedAt ?? '';
+    const key = startedAt === '' ? 'none' : startedAt;
+    if (key !== baseKey) {
+      baseKey = key;
+      baseSha = headAt(args.repo, startedAt === '' ? Date.now() : Date.parse(startedAt));
+      say(`baseline         ${baseSha.slice(0, 10)} (HEAD at ${startedAt || 'now'})`);
+    }
+    return baseSha;
+  };
+
   const fetch = async (req: Request): Promise<Response> => {
     const url = new URL(req.url);
     const path = url.pathname;
@@ -212,14 +227,18 @@ async function serve(args: Args): Promise<void> {
           return json({ error: 'unreadable' }, 404);
         }
       }
-      const tracked = (await runCapture('git', ['-C', args.repo, 'ls-files', '--error-unmatch', '--', rel]).catch(() => '')) !== '';
-      let diff = '';
-      if (tracked) {
-        diff = gitDiff(args.repo, ['diff', '--', rel]) + gitDiff(args.repo, ['diff', '--cached', '--', rel]);
-      } else {
-        diff = gitDiff(args.repo, ['diff', '--no-index', '--', '/dev/null', rel]);
-      }
+      // Against the session's baseline, not HEAD: an agent that commits as it
+      // goes would otherwise erase its own work from the map.
+      const base = sessionBase();
+      const inBase = spawnSync('git', ['-C', args.repo, 'cat-file', '-e', `${base}:${rel}`]).status === 0;
+      const diff = inBase
+        ? gitDiff(args.repo, ['diff', base, '--', rel])
+        : gitDiff(args.repo, ['diff', '--no-index', '--', '/dev/null', rel]);
       return text(diff, 200, 'text/x-diff; charset=utf-8');
+    }
+    if (req.method === 'GET' && path === '/changes') {
+      const base = sessionBase();
+      return json({ base, files: changedFiles(args.repo, base, map.fileIds) });
     }
     if (req.method === 'POST' && path === '/hook') {
       let payload: HookPayload;
@@ -305,6 +324,62 @@ function sessionIdOf(transcript: string): string {
     // fall through to the file name
   }
   return basename(transcript, '.jsonl');
+}
+
+/**
+ * The commit HEAD pointed at, at a moment: the newest reflog entry at or
+ * before it. Without reflog history that old, the oldest entry's commit;
+ * without a reflog at all, HEAD.
+ */
+function headAt(repo: string, ms: number): string {
+  const res = spawnSync('git', ['-C', repo, 'reflog', 'show', '--date=unix', '--format=%H %gd', 'HEAD'], { encoding: 'utf8' });
+  let oldest = '';
+  for (const line of (res.stdout ?? '').split('\n')) {
+    const m = /^([0-9a-f]{40}) HEAD@\{(\d+)\}$/.exec(line.trim());
+    if (!m) continue;
+    oldest = m[1]!;
+    if (Number(m[2]) * 1000 <= ms) return m[1]!;
+  }
+  if (oldest !== '') return oldest;
+  return spawnSync('git', ['-C', repo, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim() || 'HEAD';
+}
+
+interface ChangedFile {
+  readonly path: string;
+  readonly added: number;
+  readonly removed: number;
+  /** new since the baseline, committed or not */
+  readonly created: boolean;
+}
+
+/**
+ * Every file on the map that differs from the baseline: tracked changes
+ * (committed or not) from `git diff --numstat`, plus untracked files, which
+ * count as wholly added. Binary files report 0/0.
+ */
+function changedFiles(repo: string, base: string, fileIds: ReadonlyMap<string, number>): ChangedFile[] {
+  const out = new Map<string, ChangedFile>();
+  const numstat = spawnSync('git', ['-C', repo, 'diff', '--numstat', '--no-renames', base], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
+  const createdRes = spawnSync('git', ['-C', repo, 'diff', '--name-only', '--diff-filter=A', '--no-renames', base], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
+  const created = new Set((createdRes.stdout ?? '').split('\n').filter((l) => l !== ''));
+  for (const line of (numstat.stdout ?? '').split('\n')) {
+    const [a, r, path] = line.split('\t');
+    if (path === undefined || !fileIds.has(path)) continue;
+    out.set(path, { path, added: Number(a) || 0, removed: Number(r) || 0, created: created.has(path) });
+  }
+  const untracked = spawnSync('git', ['-C', repo, 'ls-files', '--others', '--exclude-standard'], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
+  for (const path of (untracked.stdout ?? '').split('\n')) {
+    if (path === '' || out.has(path) || !fileIds.has(path)) continue;
+    let lines = 0;
+    try {
+      const body = readFileSync(join(repo, path), 'utf8');
+      lines = body === '' ? 0 : body.split('\n').length - (body.endsWith('\n') ? 1 : 0);
+    } catch {
+      // unreadable: counts as changed with no lines
+    }
+    out.set(path, { path, added: lines, removed: 0, created: true });
+  }
+  return [...out.values()].sort((x, y) => x.path.localeCompare(y.path));
 }
 
 /** `git diff` exits 1 when there are differences, so the exit code is not an error here. */

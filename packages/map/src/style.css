@@ -431,3 +431,50 @@ body.nohud #agent { display: none; }
 }
 #timeline .tl-count { min-width: 56px; text-align: right; }
 @media (prefers-reduced-motion: reduce) { #timeline .tl-head { transition: none; } }
+
+/* ---------------------------------------- changes list */
+/* Top right, under the shell's controls. One line collapsed, the file list
+   expanded. Same ground and border as the agent console. */
+#changes {
+  position: absolute;
+  top: 48px; right: 12px;
+  width: 400px; max-width: 46vw;
+  border: 1px solid var(--border, rgba(255,255,255,0.12));
+  border-radius: 10px;
+  background: var(--jump, #171b21);
+  color: var(--fg, #e6e6e6);
+  font-size: 11px;
+  z-index: 5;
+  overflow: hidden;
+}
+#changes[hidden], body.nohud #changes { display: none; }
+#changes .ch-head {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  border: 0; border-radius: 0; padding: 7px 10px; text-align: left;
+}
+#changes .ch-head:hover { color: inherit; }
+#changes .ch-count { flex: 1; font-weight: 600; }
+#changes .ch-add, #changes .ch-a { color: #3fb950; font-variant-numeric: tabular-nums; }
+#changes .ch-del, #changes .ch-r { color: #f85149; font-variant-numeric: tabular-nums; }
+#changes .ch-chev { opacity: .6; transition: transform 250ms cubic-bezier(.2,.7,.2,1); }
+#changes.expanded .ch-chev { transform: rotate(180deg); }
+#changes .ch-list {
+  display: none; list-style: none; margin: 0; padding: 2px 0 6px;
+  max-height: min(56vh, 520px); overflow-y: auto;
+  border-top: 1px solid var(--border, rgba(255,255,255,0.12));
+}
+#changes.expanded .ch-list { display: block; }
+#changes li {
+  display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr) 48px 48px;
+  gap: 0 4px; align-items: baseline;
+  padding: 2px 10px; cursor: pointer; white-space: nowrap;
+  border-left: 2px solid transparent;
+}
+#changes li:hover { background: rgba(127,127,127,0.12); }
+#changes li.current { border-left-color: var(--accent, #ffb050); }
+#changes li.current .ch-name { color: var(--accent, #ffb050); }
+#changes .ch-dir { opacity: .45; overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: left; }
+#changes .ch-name { overflow: hidden; text-overflow: ellipsis; }
+#changes .ch-name.created::after { content: ' new'; font-size: 9px; letter-spacing: .08em; opacity: .55; }
+#changes .ch-a, #changes .ch-r { text-align: right; }
+@media (prefers-reduced-motion: reduce) { #changes .ch-chev { transition: none; } }

@@ -39,6 +39,8 @@ import { buildAgentConsole, fallbackTitle, lineKindOf } from './agentconsole';
 import { flightMs, reducedMotion, onMotionChange, dampTime, setReducedMotion } from './motion';
 import type { ConsoleLine, ConsoleHeader } from './agentconsole';
 import { buildTimeline } from './timeline';
+import { buildChanges } from './changes';
+import type { Change } from './changes';
 import type { TickKind } from './timeline';
 import { runBench, formatBench } from './bench';
 import type { BenchResult } from './bench';
@@ -137,6 +139,8 @@ export interface MountedMap {
   focus(file: number | string | null, line?: number | null): void;
   setAutopilot(on: boolean): void;
   setTheme(theme: ThemeName): void;
+  /** Every file that differs from the session's baseline, from the daemon's /changes. */
+  setChanges(changes: Change[]): void;
   setFollow(): void;
   /** A word about the connection behind the console, or null for none. */
   setStatus(text: string | null): void;
@@ -237,6 +241,7 @@ const hudEl = el('hud', 'div');
 const controlsEl = el('controls', 'div');
 const agentEl = el('agent', 'div');
 const timelineEl = el('timeline', 'div');
+const changesEl = el('changes', 'div');
 
 // ------------------------------------------------------------------- fixture
 // `?data=<name>` loads a real repository export instead of the synthetic
@@ -890,10 +895,12 @@ if (!exportDoc && dataName) {
   let pulseData: Pulse[] = [];
   let hotRoadData: HotTrip[] = [];
   let benchSuspendedAutopilot = false;
-  /** Camera override while the replay is showing off one edited line range. */
+  /**
+   * Camera override: the source the agent is working on, at reading zoom. Set
+   * by every event that lands on a file and held until the next one, so the
+   * user reads what the agent reads instead of a fitted overview.
+   */
   let focus: { x: number; y: number; zoom: number } | null = null;
-  let focusAt = 0;
-  const FOCUS_MS = 7000;
 
   /**
    * The agent console's own view of the replay (docs/design.md section 10): one
@@ -976,6 +983,40 @@ if (!exportDoc && dataName) {
     return `t+${(e.t / 1000).toFixed(1)}s`;
   }
 
+  /**
+   * One event reaches the map: the agent's current file, its glow, its diff,
+   * and (autopilot on) the camera close-up on the source it is about. The
+   * replay calls this from its clock, live mode from every pushed event, which
+   * never passes through the replay clock.
+   */
+  function landEvent(e: SessionEvent, now: number): void {
+    if (e.file < 0) return;
+    // The agent's current file, which the off-screen marker points at.
+    agentFile = e.file;
+    touch(e.file, now, heatOf(e.kind) >= 0.7, AGENT_FADE);
+    // The demo diff is the final state of the working tree, so a file's
+    // whole diff is applied at its first edit and re-flashes on later ones.
+    if (e.kind === 'edit' || e.kind === 'write') {
+      applied.set(e.file, now);
+      appliedVersion++;
+    }
+    // Show the source the event is about, at reading zoom: the line range
+    // when the event has one (aimed at its middle, zoomed so the whole of
+    // a short range fits), otherwise the file's first change, otherwise
+    // its top. A search names a pattern, not a place, so it does not move
+    // the camera.
+    if (toggles.autopilot && codeView.enabled && e.kind !== 'search') {
+      if (e.lineStart) {
+        const span = Math.max(1, (e.lineEnd ?? e.lineStart) - e.lineStart + 1);
+        const rowPx = Math.max(ROW_PX_READ, Math.min(ROW_PX_MAX, (view().h * 0.72) / span));
+        focus = codeView.focusPose(e.file, e.lineStart - 1 + Math.floor(span / 2), rowPx);
+      } else {
+        focus = codeView.focusPose(e.file, null, ROW_PX_READ);
+      }
+      focusedFile = e.file;
+    }
+  }
+
   function stepAutopilot(now: number, dt: number): void {
     // Events are consumed whether or not the camera follows them: what the
     // agent did must land on the map (glow, diff, agent file) even when the
@@ -983,28 +1024,7 @@ if (!exportDoc && dataName) {
     const before = autopilot.cursor;
     autopilot.tick(now);
     if (autopilot.cursor !== before) {
-      for (let i = before; i < autopilot.cursor; i++) {
-        const e = session.events[i];
-        if (e.file < 0) continue;
-        // The agent's current file, which the off-screen marker points at.
-        agentFile = e.file;
-        touch(e.file, now, heatOf(e.kind) >= 0.7, AGENT_FADE);
-        // The demo diff is the final state of the working tree, so a file's
-        // whole diff is applied at its first edit and re-flashes on later ones.
-        if (e.kind === 'edit' || e.kind === 'write') {
-          applied.set(e.file, now);
-          appliedVersion++;
-          // Follow the edited line range, not the file's centre: aim at the
-          // middle of the hunk and pick the zoom that makes it readable.
-          if (toggles.autopilot && codeView.enabled && e.lineStart) {
-            const span = Math.max(1, (e.lineEnd ?? e.lineStart) - e.lineStart + 1);
-            const rowPx = Math.max(ROW_PX_READ, Math.min(ROW_PX_MAX, (view().h * 0.72) / span));
-            focus = codeView.focusPose(e.file, e.lineStart - 1 + Math.floor(span / 2), rowPx);
-            focusAt = now;
-            focusedFile = e.file;
-          }
-        }
-      }
+      for (let i = before; i < autopilot.cursor; i++) landEvent(session.events[i], now);
     }
     markerData = autopilot.markers(now);
     pulseData = autopilot.pulses(now);
@@ -1014,7 +1034,7 @@ if (!exportDoc && dataName) {
 
     const { w, h } = view();
     const target =
-      focus && now - focusAt < FOCUS_MS ? focus : autopilot.followTarget(now, w, h);
+      focus ?? autopilot.followTarget(now, w, h);
     const current: Pose = { x: vs.target[0], y: vs.target[1], zoom: vs.zoom };
     const pose = cam.step(now, dt, current, target);
     // A flight in progress owns the camera until it lands.
@@ -1242,6 +1262,14 @@ if (!exportDoc && dataName) {
   let focusedFile = -1;
   /** The agent's current file: the last replayed event that landed on the map. */
   let agentFile = -1;
+  /**
+   * Files that differ from the session's baseline, and their terrain-band
+   * strips. Declared up here because the first frame's layers are built
+   * before the changes panel further down exists.
+   */
+  let changeByFile = new Map<number, Change>();
+  let changeStrips: Array<{ poly: Array<[number, number]>; color: [number, number, number, number] }> = [];
+  let changeVersion = 0;
   /** Screen boxes of this frame's sticky region labels, for caption collision. */
   let regionBoxes: Array<{ x: number; y: number; w: number; h: number }> = [];
 
@@ -1459,7 +1487,9 @@ if (!exportDoc && dataName) {
    * of the working tree, so the whole file's diff lands at its first edit.
    */
   function bandColor(d: DiffBand): [number, number, number, number] {
-    const at = applied.get(d.file);
+    // Live: what is on disk has happened, every band is in colour (see
+    // CodeViewParams.diffsLanded). Replay: grey until the replay gets there.
+    const at = applied.get(d.file) ?? (live ? -Infinity : undefined);
     if (at === undefined) {
       const [r, g, b] = DIFF_RGB.pending;
       return [r, g, b, 150];
@@ -1674,6 +1704,15 @@ if (!exportDoc && dataName) {
             positionFormat: 'XY',
             filled: true,
             opacity: code.fadeOpacity
+          })
+        : null,
+      changeStrips.length > 0 && bandOf(rowPxNow()) === 'terrain'
+        ? new SolidPolygonLayer({
+            id: 'change-strips',
+            data: changeStrips,
+            getPolygon: (d: { poly: Array<[number, number]> }) => d.poly,
+            getFillColor: (d: { color: [number, number, number, number] }) => d.color,
+            updateTriggers: { getPolygon: changeVersion, getFillColor: changeVersion }
           })
         : null,
       code.bands.length > 0
@@ -1997,6 +2036,43 @@ if (!exportDoc && dataName) {
   if (live) timelineEl.hidden = true;
   else timeline.setEvents(session.events.map(tickOf), consoleLineList.map((l) => l.time));
 
+  /**
+   * Every file that differs from the session's baseline (the shell feeds it
+   * from the daemon's /changes): the list top right, and a strip on each
+   * changed tile at the terrain band, where no file shows its own diff yet.
+   */
+  const changesPanel = buildChanges(changesEl, {
+    go: (path) => {
+      // Reviewing is taking the wheel: the autopilot would pull the camera
+      // straight back to the agent. Follow hands it back.
+      setAutopilotOn(false);
+      handle.focus(path);
+    }
+  });
+  function setChanges(list: Change[]): void {
+    changeByFile = new Map();
+    for (const c of list) {
+      const f = fileOf(c.path);
+      if (f >= 0) changeByFile.set(f, c);
+    }
+    changeStrips = [];
+    for (const [f, c] of changeByFile) {
+      const x = layout.cityRect[f * 4];
+      const y = layout.cityRect[f * 4 + 1];
+      const w = layout.cityRect[f * 4 + 2];
+      const h = layout.cityRect[f * 4 + 3];
+      const sw = w * 0.22;
+      const rgb = c.created || c.removed === 0 ? DIFF_RGB.add : c.added === 0 ? DIFF_RGB.del : DIFF_RGB.mod;
+      changeStrips.push({
+        poly: [[x + w - sw, y], [x + w, y], [x + w, y + h], [x + w - sw, y + h]],
+        color: [rgb[0], rgb[1], rgb[2], 235]
+      });
+    }
+    changeVersion++;
+    changesPanel.set(list.filter((c) => fileOf(c.path) >= 0));
+    redrawPending = true;
+  }
+
   function countVisible(): { cities: number; edges: number; buildings: number } {
     const [x0, y0, x1, y1] = bounds();
     let c = 0;
@@ -2081,7 +2157,8 @@ if (!exportDoc && dataName) {
         project: projector(),
         stillMs: now - lastMoveAt,
         dragging: pointerDown,
-        applied
+        applied,
+        diffsLanded: live
       });
       if (codeSignature() !== before) redrawPending = true;
       // While a flash is running the band colours change every frame.
@@ -2118,6 +2195,7 @@ if (!exportDoc && dataName) {
       agentConsole.setCursor(consoleCursor);
       if (!live) timeline.setCursor(consoleCursor);
     }
+    changesPanel.setCurrent(agentFile >= 0 ? pathOf(repo, agentFile) : null);
 
     if (redrawPending) {
       redrawPending = false;
@@ -3043,7 +3121,9 @@ function pushEvent(w: WireEvent): void {
   if (!liveIndex) return;
   const mapped = mapSessionEvent(w, liveIndex.fileIndex, liveIndex.t0, livePrevFile);
   if (mapped.file >= 0) livePrevFile = mapped.file;
+  const atEnd = autopilot.cursor >= session.events.length;
   autopilot.appendLive(mapped, performance.now());
+  if (atEnd) landEvent(mapped, performance.now());
   pushConsole();
   redrawPending = true;
 }
@@ -3267,6 +3347,7 @@ const handle: MountedMap = {
     options.onFocus?.(infoOf(f, line));
   },
   setAutopilot: setAutopilotOn,
+  setChanges,
   setTheme: applyTheme,
   setFollow: () => {
     setAutopilotOn(true);
