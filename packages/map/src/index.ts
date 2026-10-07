@@ -58,7 +58,7 @@ export interface MapHandle {
   setFollow(): void;
   setTheme(theme: ThemeNameArg): void;
   /** Every file that differs from the session's baseline (the daemon's /changes). */
-  setChanges(changes: Change[]): void;
+  setChanges(changes: Change[] | null): void;
   /** A word about the connection behind the console, or null for none. */
   setStatus(text: string | null): void;
   /** Jump the replay to an event index. */
@@ -85,7 +85,7 @@ export function createMap(container: HTMLElement, options: MapOptions = {}): Map
   /** Connection word set before the document was in, applied on mount. */
   let status: string | null = null;
   /** The changes list set before the document was in, applied on mount. */
-  let changes: Change[] | null = null;
+  let changes: Change[] | null | undefined;
   /** Frames that arrived while the document was still loading. */
   const queued: ServerMessage[] = [];
 
@@ -96,7 +96,7 @@ export function createMap(container: HTMLElement, options: MapOptions = {}): Map
         if (dead) { m.destroy(); return; }
         inner = m;
         if (status !== null) m.setStatus(status);
-        if (changes !== null) m.setChanges(changes);
+        if (changes !== undefined) m.setChanges(changes);
         for (const msg of queued) m.applyDelta(msg);
         queued.length = 0;
       });

@@ -111,6 +111,22 @@ interface Running {
   readonly pid: number;
   readonly transcript: string;
   readonly url: string;
+  /** daemonCode() when it started; an instance running older code is replaced */
+  readonly code?: number;
+}
+
+/**
+ * A fingerprint of the code a background instance runs: the newest mtime
+ * under the daemon and the packages it imports. Reusing an instance that
+ * predates a change served the old protocol (a missing /changes read as
+ * "no changes"), so `--live` replaces it instead.
+ */
+function daemonCode(): number {
+  return Math.max(
+    newest(join(WAKE_ROOT, 'apps', 'wake-daemon', 'src')),
+    newest(join(WAKE_ROOT, 'packages', 'export', 'src')),
+    newest(join(WAKE_ROOT, 'packages', 'layout', 'src')),
+  );
 }
 
 function stateFile(repo: string): string {
@@ -463,7 +479,8 @@ async function main(): Promise<void> {
   if (args.live) {
     excludeWakeDir(args.repo);
     const running = readRunning(args.repo);
-    if (running !== null && running.transcript === transcript) {
+    const current = running !== null && running.code === daemonCode();
+    if (running !== null && running.transcript === transcript && current) {
       // Already watching this session: show it again, start nothing.
       step('running', running.url);
       if (args.open) openBrowser(running.url);
@@ -471,7 +488,9 @@ async function main(): Promise<void> {
       return;
     }
     if (running !== null) {
-      step('replacing', `the instance watching ${basename(running.transcript, '.jsonl')}`);
+      step('replacing', running.transcript === transcript
+        ? 'the instance for this session, it runs older Wake code'
+        : `the instance watching ${basename(running.transcript, '.jsonl')}`);
       stopRunning(args.repo);
       await new Promise((r) => setTimeout(r, 500));
     }
@@ -507,7 +526,7 @@ async function main(): Promise<void> {
   step('ready', url);
   console.log('\n  Ctrl+C to stop.\n');
   if (args.live) {
-    const running: Running = { pid: process.pid, transcript, url };
+    const running: Running = { pid: process.pid, transcript, url, code: daemonCode() };
     writeFileSync(stateFile(args.repo), JSON.stringify(running));
     process.on('exit', () => {
       if (readRunning(args.repo)?.pid === process.pid) rmSync(stateFile(args.repo), { force: true });

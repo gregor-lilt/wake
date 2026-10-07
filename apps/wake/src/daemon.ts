@@ -55,11 +55,13 @@ export class Daemon {
 
   /**
    * `GET /changes`: every file that differs from the session's baseline, with
-   * line counts. An older daemon without the endpoint answers 404: no list.
+   * line counts. `null` when the daemon has no such endpoint (it predates it):
+   * that is not the same as "nothing changed" and must not read as it.
    */
-  async changes(since: 'head' | 'session' = 'head', signal?: AbortSignal): Promise<Change[]> {
+  async changes(since: 'head' | 'session' = 'head', signal?: AbortSignal): Promise<Change[] | null> {
     const res = await fetch(`${this.base}/changes?since=${since}`, { signal });
-    if (!res.ok) return [];
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(`changes ${res.status}`);
     return ((await res.json()) as { files: Change[] }).files;
   }
 

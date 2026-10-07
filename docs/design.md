@@ -502,3 +502,9 @@ survives the edits above.
   eased camera settles a hair below its target. Close-ups now aim at rowPx
   12, inside the band, and a range taller than the screen (a whole-file
   read) is shown from its start, not its middle.
+- 2026-10-07. Review: a session's list said "No changes this session" next
+  to a visible diff. Its background daemon predated /changes, answered 404,
+  and the app read that as an empty list; /wake kept reusing the instance.
+  Now a missing endpoint says "Daemon too old to list changes, restart
+  Wake", and `wake --live` replaces a background instance whose daemon code
+  is older than the checkout (a fingerprint in .wake/live/wake.json).

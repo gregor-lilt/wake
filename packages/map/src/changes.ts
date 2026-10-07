@@ -37,7 +37,8 @@ export interface ChangesActions {
 }
 
 export interface ChangesHandles {
-  set(changes: Change[]): void;
+  /** `null`: the daemon cannot list changes (too old), which is said, not shown as zero. */
+  set(changes: Change[] | null): void;
   /** The agent's current file, highlighted when it is in the list. */
   setCurrent(path: string | null): void;
   /** Test hook. */
@@ -116,6 +117,7 @@ export function buildChanges(root: HTMLElement, actions: ChangesActions): Change
     });
   }
   let changes: Change[] = [];
+  let unavailable = false;
   let current: string | null = null;
   let renderedKey = '';
 
@@ -125,7 +127,7 @@ export function buildChanges(root: HTMLElement, actions: ChangesActions): Change
   }
 
   function render(): void {
-    const key = `${scope}|${changes.map((c) => `${c.path}:${c.added}:${c.removed}`).join('|')}`;
+    const key = `${scope}|${unavailable ? 'n/a' : changes.map((c) => `${c.path}:${c.added}:${c.removed}`).join('|')}`;
     if (key !== renderedKey) {
       renderedKey = key;
       let a = 0;
@@ -134,11 +136,13 @@ export function buildChanges(root: HTMLElement, actions: ChangesActions): Change
         a += c.added;
         r += c.removed;
       }
-      count.textContent = changes.length === 0
+      count.textContent = unavailable
+        ? 'Daemon too old to list changes, restart Wake'
+        : changes.length === 0
         ? (scope === 'head' ? 'Nothing uncommitted' : 'No changes this session')
         : changes.length === 1 ? '1 file changed' : `${fmt(changes.length)} files changed`;
-      add.textContent = `+${fmt(a)}`;
-      del.textContent = `−${fmt(r)}`;
+      add.textContent = unavailable ? '' : `+${fmt(a)}`;
+      del.textContent = unavailable ? '' : `−${fmt(r)}`;
       list.textContent = '';
       for (const c of changes) {
         const li = document.createElement('li');
@@ -184,7 +188,8 @@ export function buildChanges(root: HTMLElement, actions: ChangesActions): Change
 
   return {
     set(next) {
-      changes = next;
+      unavailable = next === null;
+      changes = next ?? [];
       root.hidden = false;
       render();
     },

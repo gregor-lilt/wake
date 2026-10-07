@@ -141,8 +141,8 @@ export interface MountedMap {
   focus(file: number | string | null, line?: number | null): void;
   setAutopilot(on: boolean): void;
   setTheme(theme: ThemeName): void;
-  /** Every file that differs from the session's baseline, from the daemon's /changes. */
-  setChanges(changes: Change[]): void;
+  /** Every changed file, from the daemon's /changes; `null` when the daemon cannot say. */
+  setChanges(changes: Change[] | null): void;
   setFollow(): void;
   /** A word about the connection behind the console, or null for none. */
   setStatus(text: string | null): void;
@@ -2070,9 +2070,9 @@ if (!exportDoc && dataName) {
       redrawPending = true;
     }
   });
-  function setChanges(list: Change[]): void {
+  function setChanges(list: Change[] | null): void {
     changeByFile = new Map();
-    for (const c of list) {
+    for (const c of list ?? []) {
       const f = fileOf(c.path);
       if (f >= 0) changeByFile.set(f, c);
     }
@@ -2090,7 +2090,8 @@ if (!exportDoc && dataName) {
       });
     }
     changeVersion++;
-    changesPanel.set(list.filter((c) => fileOf(c.path) >= 0));
+    // null is "the daemon cannot say", which the panel states; [] is "nothing".
+    changesPanel.set(list === null ? null : list.filter((c) => fileOf(c.path) >= 0));
     redrawPending = true;
   }
 
