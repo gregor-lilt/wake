@@ -497,3 +497,8 @@ survives the edits above.
   session started on, for an agent that commits as it goes). Remembered per
   browser. The list stays visible at zero ("Nothing uncommitted") so the
   switch is always reachable.
+- 2026-10-07. Review: a close-up showed schematic bars at full size, not
+  code. The close-up targeted exactly rowPx 9, the source threshold, and the
+  eased camera settles a hair below its target. Close-ups now aim at rowPx
+  12, inside the band, and a range taller than the screen (a whole-file
+  read) is shown from its start, not its middle.

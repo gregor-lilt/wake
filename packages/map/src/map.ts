@@ -1010,10 +1010,15 @@ if (!exportDoc && dataName) {
     if (toggles.autopilot && codeView.enabled && e.kind !== 'search') {
       if (e.lineStart) {
         const span = Math.max(1, (e.lineEnd ?? e.lineStart) - e.lineStart + 1);
-        const rowPx = Math.max(ROW_PX_READ, Math.min(ROW_PX_MAX, (view().h * 0.72) / span));
-        focus = codeView.focusPose(e.file, e.lineStart - 1 + Math.floor(span / 2), rowPx);
+        const fit = (view().h * 0.72) / span;
+        const rowPx = Math.max(CLOSE_UP_PX, Math.min(ROW_PX_MAX, fit));
+        // A range taller than the screen (a whole-file read) is shown from its
+        // start, the way a reader opens it, not from its middle.
+        const shown = Math.floor((view().h * 0.72) / rowPx);
+        const aim = span <= shown ? e.lineStart - 1 + Math.floor(span / 2) : e.lineStart - 1 + Math.floor(shown / 2);
+        focus = codeView.focusPose(e.file, aim, rowPx);
       } else {
-        focus = codeView.focusPose(e.file, null, ROW_PX_READ);
+        focus = codeView.focusPose(e.file, null, CLOSE_UP_PX);
       }
       focusedFile = e.file;
     }
@@ -1410,6 +1415,13 @@ if (!exportDoc && dataName) {
   }
 
   const READ_PX = Math.min(ROW_PX_READ, ROW_PX_MAX);
+  /**
+   * Row height of the autopilot's close-up. Well inside the reading band, not
+   * on its edge: the camera eases toward its target and never quite reaches
+   * it, so a target of exactly ROW_PX_READ settled a hair below the source
+   * threshold and showed schematic bars at full size instead of code.
+   */
+  const CLOSE_UP_PX = Math.min(12, ROW_PX_MAX);
   const wayfind = new Wayfinding(container, places, theme, {
     frameDir: (d) => { if (d >= 0) flyTo(dirRectOf(d), 700, true); },
     frameFile: (f, line) => {
