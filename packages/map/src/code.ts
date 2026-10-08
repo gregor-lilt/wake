@@ -44,7 +44,22 @@ const LANG_OF_EXT: Record<string, TokenLang> = {
   jsx: 'javascript',
   json: 'json',
   md: 'markdown',
-  markdown: 'markdown'
+  markdown: 'markdown',
+  c: 'c',
+  // .h is ambiguous, the C++ grammar is a superset of C so it renders both.
+  h: 'cpp',
+  cc: 'cpp',
+  cpp: 'cpp',
+  cxx: 'cpp',
+  'c++': 'cpp',
+  hh: 'cpp',
+  hpp: 'cpp',
+  hxx: 'cpp',
+  inl: 'cpp',
+  ipp: 'cpp',
+  tpp: 'cpp',
+  cu: 'cpp',
+  cuh: 'cpp'
 };
 
 export function langOf(path: string): TokenLang {
@@ -86,23 +101,55 @@ let warmed: Worker | null = null;
  * it, which is the expensive half of the first tokenize (module load, grammar
  * and theme registration). The warm worker is then adopted by the CodeStore,
  * so this is real startup work moved in front of the loader, not a probe.
- * Resolves with the elapsed milliseconds.
+ *
+ * The JS RegExp engine compiles each grammar lazily on its first tokenize,
+ * and the cost is very uneven: TypeScript is ~0.2 s, C++ over 1 s. Passing
+ * the repository's file names warms exactly the grammars it uses, so a repo
+ * without C++ never pays for it and a repo with it pays here, not on the
+ * first sheet the reader opens. Resolves with the elapsed milliseconds.
  */
-export function warmTokenWorker(theme: 'dark' | 'light'): Promise<number> {
+export function warmTokenWorker(theme: 'dark' | 'light', fileNames: readonly string[] = []): Promise<number> {
   const t0 = performance.now();
   const w = warmed ?? newWorker();
   warmed = w;
+  const langs = new Set<WarmLang>(['typescript']);
+  for (const name of fileNames) {
+    const l = langOf(name);
+    if (l !== 'plain') langs.add(l);
+  }
   return new Promise<number>((resolve) => {
     // id 0 is reserved for the warm-up, so a store that adopts this worker
-    // cannot confuse a late reply with one of its own requests.
-    const req: TokenRequest = { id: 0, lang: 'typescript', theme, code: 'const wake = 1\n' };
-    w.onmessage = () => {
-      w.onmessage = null;
-      resolve(performance.now() - t0);
+    // cannot confuse a late reply with one of its own requests. One request
+    // per grammar, in sequence, each a one-line snippet.
+    const queue = [...langs];
+    const next = () => {
+      const lang = queue.shift();
+      if (lang === undefined) {
+        w.onmessage = null;
+        resolve(performance.now() - t0);
+        return;
+      }
+      const req: TokenRequest = { id: 0, lang, theme, code: WARM_SNIPPET[lang] };
+      w.postMessage(req);
     };
-    w.postMessage(req);
+    w.onmessage = next;
+    next();
   });
 }
+
+type WarmLang = Exclude<TokenLang, 'plain'>;
+
+/** One line per grammar, enough to make the engine compile its regexes. */
+const WARM_SNIPPET: Record<WarmLang, string> = {
+  python: 'wake = 1\n',
+  typescript: 'const wake = 1\n',
+  tsx: 'const wake = <a />\n',
+  javascript: 'const wake = 1\n',
+  json: '{"wake": 1}\n',
+  markdown: '# wake\n',
+  c: 'int wake = 1;\n',
+  cpp: 'auto wake = 1;\n'
+};
 
 /**
  * Where a file's current text and its diff against HEAD come from. The static

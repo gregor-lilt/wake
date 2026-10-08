@@ -438,7 +438,7 @@ if (!exportDoc && dataName) {
   // Shiki's highlighter inside it, and the CodeStore below adopts that same
   // worker. Without the splash it warms lazily on the first tokenize, exactly as
   // before, so the bench measures an unchanged startup.
-  if (splash.active) await warmTokenWorker(toggles.theme);
+  if (splash.active) await warmTokenWorker(toggles.theme, repo.fileName);
   const codeView = new CodeView(repo, layout, theme, {
     source: options.source ?? (dataName ? exportSource(dataName, qs.get('diffrev') ?? '') : null),
     root: container,

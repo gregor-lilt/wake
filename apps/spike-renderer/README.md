@@ -130,7 +130,7 @@ collapse it.
 | Autopilot runtime | `src/autopilot.ts` | Emits events on the clock, keeps the 10 s touch window, animates one marker per trip along its road, keeps a decaying link volume per road |
 | Activity per band | `src/main.ts`, `src/schematic.ts` | The tile fill glow's weight ramps from 1 at rowPx 6 to 0 at rowPx 9 (`tileGlowWeight`), so it is gone in the reading band. Its complement drives a 2-3 px amber glow on the sheet border and on the sticky header strip, fading on the slow 600 ms duration. Trip roads are Liang-Barsky clipped against the sheets in view, and the marker and the arrival pulse stay off the paper |
 | Autopilot camera | `src/camera.ts` | FOLLOW / MANUAL / RECENTERING with Unity's `smoothDamp` (critically damped, frame-rate independent) |
-| Tokenizer | `src/tokens.worker.ts`, `src/code.ts` | Shiki 4.4.3 in a worker, fine-grained bundle, JS RegExp engine, six languages. Typed-array runs plus a palette, cached per content hash and theme, one pass feeding both code tiers |
+| Tokenizer | `src/tokens.worker.ts`, `src/code.ts` | Shiki 4.4.3 in a worker, fine-grained bundle, JS RegExp engine, eight languages. Typed-array runs plus a palette, cached per content hash and theme, one pass feeding both code tiers |
 | Diff | `src/diff.ts` | Unified diff to per-line changes plus removals anchored at the line they sat in front of. Removal run followed by an addition run is a modification |
 | Schematic tier | `src/schematic.ts` | World-space quads per token run, class and function bands, changed lines in the right margin, the fold marker's dashes. Clipped to the 96-column text box with a per-vertex fade. Cached per file, because the row height no longer follows the camera at all |
 | Source tier | `src/overlay.ts` | Pool of 8 DOM `<pre>`, positioned by deck's own `viewport.project`, transparent, row height and text box taken from the sheet, visible line range only |
@@ -653,8 +653,8 @@ line when it has no diff. The line count and the diff arrive after the fetch,
 so the camera aims at the first line immediately and re-aims once.
 
 Both tiers are fed by **one** tokenizer pass. `src/tokens.worker.ts` runs Shiki
-4.4.3 in a worker (the `@shikijs/*` subpackages only, never `shiki/bundle/full`), fine-grained bundle, JS RegExp engine, six languages
-(python, typescript, tsx, javascript, json, markdown) and one theme per
+4.4.3 in a worker (the `@shikijs/*` subpackages only, never `shiki/bundle/full`), fine-grained bundle, JS RegExp engine, eight languages
+(python, typescript, tsx, javascript, json, markdown, c, cpp) and one theme per
 appearance. It returns typed arrays only: per line a set of runs
 `(startCol, len, colourIndex)` plus an RGB palette, cached per content hash and
 theme. A run is a maximal non-whitespace span inside a token, which is what

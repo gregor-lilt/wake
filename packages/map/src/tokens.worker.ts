@@ -1,6 +1,6 @@
 /**
  * Tokenizer worker. One Shiki instance, fine-grained bundle, JS RegExp engine
- * (no wasm, instant startup), six languages, one theme per appearance.
+ * (no wasm, instant startup), eight languages, one theme per appearance.
  *
  * One codeToTokens pass per file feeds both code tiers: the schematic draws
  * one GPU rect per run, the source wraps the same runs in spans. Runs are maximal non-whitespace
@@ -18,10 +18,21 @@ import tsx from '@shikijs/langs/tsx';
 import javascript from '@shikijs/langs/javascript';
 import json from '@shikijs/langs/json';
 import markdown from '@shikijs/langs/markdown';
+import c from '@shikijs/langs/c';
+import cpp from '@shikijs/langs/cpp';
 import darkTheme from '@shikijs/themes/github-dark-default';
 import lightTheme from '@shikijs/themes/github-light-default';
 
-export type TokenLang = 'python' | 'typescript' | 'tsx' | 'javascript' | 'json' | 'markdown' | 'plain';
+export type TokenLang =
+  | 'python'
+  | 'typescript'
+  | 'tsx'
+  | 'javascript'
+  | 'json'
+  | 'markdown'
+  | 'c'
+  | 'cpp'
+  | 'plain';
 
 export interface TokenRequest {
   id: number;
@@ -51,7 +62,7 @@ let hl: HighlighterCore | null = null;
 async function highlighter(): Promise<HighlighterCore> {
   if (!hl) {
     hl = await createHighlighterCore({
-      langs: [python, typescript, tsx, javascript, json, markdown],
+      langs: [python, typescript, tsx, javascript, json, markdown, c, cpp],
       themes: [darkTheme, lightTheme],
       engine: createJavaScriptRegexEngine()
     });
